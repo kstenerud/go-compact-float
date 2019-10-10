@@ -7,12 +7,12 @@ import (
 	"github.com/kstenerud/go-vlq"
 )
 
-func requireBytes(byteCount int, buffer []byte) error {
-	if len(buffer) < byteCount {
-		return fmt.Errorf("%v free bytes required to encode, but only %v available", byteCount, len(buffer))
-	}
-	return nil
-}
+// func requireBytes(byteCount int, buffer []byte) error {
+// 	if len(buffer) < byteCount {
+// 		return fmt.Errorf("%v free bytes required to encode, but only %v available", byteCount, len(buffer))
+// 	}
+// 	return nil
+// }
 
 func abs32(value int32) int32 {
 	mask := value >> 31
@@ -24,49 +24,49 @@ func abs64(value int64) int64 {
 	return (value + mask) ^ mask
 }
 
-func encodeSpecialValue(dst []byte, value byte) (bytesEncoded int, err error) {
-	if err = requireBytes(1, dst); err != nil {
-		return 0, err
+func encodeSpecialValue(dst []byte, value byte) (bytesEncoded int, ok bool) {
+	if len(dst) < 1 {
+		return 1, false
 	}
 	dst[0] = value
-	return 1, nil
+	return 1, true
 }
 
-func encodeExtendedSpecialValue(dst []byte, value byte) (bytesEncoded int, err error) {
-	if err = requireBytes(2, dst); err != nil {
-		return 0, err
+func encodeExtendedSpecialValue(dst []byte, value byte) (bytesEncoded int, ok bool) {
+	if len(dst) < 2 {
+		return 2, false
 	}
 	dst[0] = 0x80
 	dst[1] = value
-	return 2, nil
+	return 2, true
 }
 
-func encodeQuietNan(dst []byte) (bytesEncoded int, err error) {
+func encodeQuietNan(dst []byte) (bytesEncoded int, ok bool) {
 	return encodeExtendedSpecialValue(dst, 0)
 }
 
-func encodeSignalingNan(dst []byte) (bytesEncoded int, err error) {
+func encodeSignalingNan(dst []byte) (bytesEncoded int, ok bool) {
 	return encodeExtendedSpecialValue(dst, 1)
 }
 
-func encodeInfinity(dst []byte) (bytesEncoded int, err error) {
+func encodeInfinity(dst []byte) (bytesEncoded int, ok bool) {
 	return encodeExtendedSpecialValue(dst, 2)
 }
 
-func encodeNegativeInfinity(dst []byte) (bytesEncoded int, err error) {
+func encodeNegativeInfinity(dst []byte) (bytesEncoded int, ok bool) {
 	return encodeExtendedSpecialValue(dst, 3)
 }
 
-func encodeZero(dst []byte) (bytesEncoded int, err error) {
+func encodeZero(dst []byte) (bytesEncoded int, ok bool) {
 	return encodeSpecialValue(dst, 2)
 }
 
-func encodeNegativeZero(dst []byte) (bytesEncoded int, err error) {
+func encodeNegativeZero(dst []byte) (bytesEncoded int, ok bool) {
 	return encodeSpecialValue(dst, 3)
 }
 
 func extractFloat(value float64, significantDigits int) (exponent int, significand int64) {
-	// Assuming normal value at this point
+	// Assuming no inf or nan
 	stringRep := fmt.Sprintf("%v", value)
 	// (-)d+(.d+)(e[+-]d+)
 	encounteredDot := false
@@ -148,7 +148,7 @@ func extractFloat(value float64, significantDigits int) (exponent int, significa
 // Encode an iee754 binary floating point value, with the specified number of significant digits.
 // Rounding is half-to-even, meaning it rounds towards an even number when exactly halfway.
 // If significantDigits is <1 or >15, no rounding takes place.
-func Encode(value float64, significantDigits int, dst []byte) (bytesEncoded int, err error) {
+func Encode(value float64, significantDigits int, dst []byte) (bytesEncoded int, ok bool) {
 
 	if math.Float64bits(value) == math.Float64bits(0) {
 		return encodeZero(dst)
@@ -176,55 +176,55 @@ func Encode(value float64, significantDigits int, dst []byte) (bytesEncoded int,
 
 	significandVlq := vlq.Rvlq(abs64(significand))
 
-	bytesEncoded, err = exponentVlq.EncodeTo(dst)
-	if err != nil {
-		return bytesEncoded, err
+	bytesEncoded, ok = exponentVlq.EncodeTo(dst)
+	if !ok {
+		return bytesEncoded, ok
 	}
 	offset := bytesEncoded
 
-	bytesEncoded, err = significandVlq.EncodeTo(dst[offset:])
-	if err != nil {
-		return bytesEncoded, err
+	bytesEncoded, ok = significandVlq.EncodeTo(dst[offset:])
+	if !ok {
+		return offset + bytesEncoded, ok
 	}
 
-	return offset + bytesEncoded, nil
+	return offset + bytesEncoded, true
 }
 
 // Decode a float
-func Decode(src []byte) (value float64, bytesDecoded int, err error) {
+func Decode(src []byte) (value float64, bytesDecoded int, ok bool) {
 	var exponentVlq vlq.Rvlq
 	var significand vlq.Rvlq
 	var isComplete bool
 	exponentVlq, bytesDecoded, isComplete = vlq.DecodeRvlqFrom(src)
 	if !isComplete {
-		return value, 0, fmt.Errorf("Require more bytes to decode value")
+		return value, bytesDecoded, isComplete
 	}
 
 	if vlq.IsExtended(src) {
 		switch exponentVlq {
 		case 0:
-			return math.NaN(), bytesDecoded, nil
+			return math.NaN(), bytesDecoded, true
 		case 1:
 			// TODO: Signaling nan
-			return math.NaN(), bytesDecoded, nil
+			return math.NaN(), bytesDecoded, true
 		case 2:
-			return math.Inf(1), bytesDecoded, nil
+			return math.Inf(1), bytesDecoded, true
 		case 3:
-			return math.Inf(-1), bytesDecoded, nil
+			return math.Inf(-1), bytesDecoded, true
 		}
 	}
 
 	if exponentVlq == 2 {
-		return 0, bytesDecoded, nil
+		return 0, bytesDecoded, true
 	}
 	if exponentVlq == 3 {
-		return math.Copysign(0, -1), bytesDecoded, nil
+		return math.Copysign(0, -1), bytesDecoded, true
 	}
 
 	offset := bytesDecoded
 	significand, bytesDecoded, isComplete = vlq.DecodeRvlqFrom(src[offset:])
 	if !isComplete {
-		return value, 0, fmt.Errorf("Require more bytes to decode value")
+		return value, offset + bytesDecoded, isComplete
 	}
 
 	significandSign := exponentVlq & 1
@@ -241,10 +241,10 @@ func Decode(src []byte) (value float64, bytesDecoded int, err error) {
 	}
 
 	floatString := fmt.Sprintf("%de%d", significand, exponent)
-	_, err = fmt.Sscanf(floatString, "%f", &value)
+	_, err := fmt.Sscanf(floatString, "%f", &value)
 	if err != nil {
-		return value, bytesDecoded, err
+		panic(fmt.Errorf("BUG: Failed to convert float string [%v]: %v", floatString, err))
 	}
 
-	return value, offset + bytesDecoded, nil
+	return value, offset + bytesDecoded, true
 }

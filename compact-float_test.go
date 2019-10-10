@@ -11,9 +11,9 @@ import (
 
 func assertEncodeDecode(t *testing.T, sourceValue float64, significantDigits int, expectedEncoded []byte) float64 {
 	actualEncoded := make([]byte, 15)
-	bytesEncoded, err := Encode(sourceValue, significantDigits, actualEncoded)
-	if err != nil {
-		t.Errorf("Value %v: err %v", sourceValue, err)
+	bytesEncoded, ok := Encode(sourceValue, significantDigits, actualEncoded)
+	if !ok {
+		t.Errorf("Value %v: could not encode into %v bytes", sourceValue, len(actualEncoded))
 	}
 	if bytesEncoded != len(expectedEncoded) {
 		t.Errorf("Value %v: Expected to encode %v bytes but encoded %v", sourceValue, len(expectedEncoded), bytesEncoded)
@@ -22,7 +22,10 @@ func assertEncodeDecode(t *testing.T, sourceValue float64, significantDigits int
 	if !bytes.Equal(expectedEncoded, actualEncoded) {
 		t.Errorf("Value %v: Expected encoded:\n%v but got:\n%v", sourceValue, hex.Dump(expectedEncoded), hex.Dump(actualEncoded))
 	}
-	actualValue, bytesDecoded, err := Decode(expectedEncoded)
+	actualValue, bytesDecoded, ok := Decode(expectedEncoded)
+	if !ok {
+		t.Errorf("Failed to decode from buffer %v", expectedEncoded)
+	}
 	if bytesDecoded != len(actualEncoded) {
 		t.Errorf("Value %v: Expected to decode %v bytes but decoded %v", sourceValue, len(expectedEncoded), bytesDecoded)
 	}

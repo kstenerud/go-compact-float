@@ -13,16 +13,16 @@ func demonstrateEncodeDecode() {
 	originalValue := 0.1473445219134543
 	significantDigits := 6
 	buffer := make([]byte, 15)
-	bytesEncoded, err := Encode(originalValue, significantDigits, buffer)
-	if err != nil {
-		// TODO: Handle this
+	bytesEncoded, ok := Encode(originalValue, significantDigits, buffer)
+	if !ok {
+		// TODO: There wasn't enough room to encode
 	}
 	buffer = buffer[:bytesEncoded]
 	fmt.Printf("%v encoded using %d significant digits = %v\n", originalValue, significantDigits, buffer)
 
-	decodedValue, bytesDecoded, err := Decode(buffer)
-	if err != nil {
-		// TODO: Handle this
+	decodedValue, bytesDecoded, ok := Decode(buffer)
+	if !ok {
+		// TODO: The buffer has been truncated
 	}
 	fmt.Printf("%v decoded %v bytes = %v\n", buffer, bytesDecoded, decodedValue)
 
