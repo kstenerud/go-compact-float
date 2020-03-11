@@ -22,7 +22,7 @@ func assertEncodeDecode(t *testing.T, sourceValue float64, significantDigits int
 	if !bytes.Equal(expectedEncoded, actualEncoded) {
 		t.Errorf("Value %v: Expected encoded:\n%v but got:\n%v", sourceValue, hex.Dump(expectedEncoded), hex.Dump(actualEncoded))
 	}
-	actualValue, bytesDecoded, ok := Decode(expectedEncoded)
+	actualValue, _, bytesDecoded, ok := Decode(expectedEncoded)
 	if !ok {
 		t.Errorf("Failed to decode from buffer %v", expectedEncoded)
 	}

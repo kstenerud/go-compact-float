@@ -7,12 +7,171 @@ import (
 	"github.com/kstenerud/go-vlq"
 )
 
-// func requireBytes(byteCount int, buffer []byte) error {
-// 	if len(buffer) < byteCount {
-// 		return fmt.Errorf("%v free bytes required to encode, but only %v available", byteCount, len(buffer))
-// 	}
-// 	return nil
-// }
+// Encode an iee754 binary floating point value, with the specified number of significant digits.
+// Rounding is half-to-even, meaning it rounds towards an even number when exactly halfway.
+// If significantDigits is less than 1, no rounding takes place.
+func Encode(value float64, significantDigits int, dst []byte) (bytesEncoded int, ok bool) {
+
+	if math.Float64bits(value) == math.Float64bits(0) {
+		return encodeZero(dst)
+	} else if value == math.Copysign(0, -1) {
+		return encodeNegativeZero(dst)
+	} else if math.IsInf(value, 1) {
+		return encodeInfinity(dst)
+	} else if math.IsInf(value, -1) {
+		return encodeNegativeInfinity(dst)
+	} else if math.IsNaN(value) {
+		return encodeQuietNan(dst)
+	}
+	// TODO: Signaling NaN
+
+	exponent, significand := extractFloat(value, significantDigits)
+
+	exponentSign := (exponent >> 31) & 1
+	significandSign := (significand >> 63) & 1
+
+	exponentVlq := vlq.Rvlq(abs32(int32(exponent)))
+	exponentVlq <<= 1
+	exponentVlq |= vlq.Rvlq(exponentSign)
+	exponentVlq <<= 1
+	exponentVlq |= vlq.Rvlq(significandSign)
+
+	significandVlq := vlq.Rvlq(abs64(significand))
+
+	bytesEncoded, ok = exponentVlq.EncodeTo(dst)
+	if !ok {
+		return bytesEncoded, ok
+	}
+	offset := bytesEncoded
+
+	bytesEncoded, ok = significandVlq.EncodeTo(dst[offset:])
+	if !ok {
+		return offset + bytesEncoded, ok
+	}
+
+	return offset + bytesEncoded, true
+}
+
+// Decode a float
+func Decode(src []byte) (value float64, significantDigits int, bytesDecoded int, ok bool) {
+	var exponentVlq vlq.Rvlq
+	var significand vlq.Rvlq
+	var isComplete bool
+	exponentVlq, bytesDecoded, isComplete = vlq.DecodeRvlqFrom(src)
+	if !isComplete {
+		return
+	}
+
+	if vlq.IsExtended(src) {
+		switch exponentVlq {
+		case 0:
+			value = math.NaN()
+			ok = true
+			return
+		case 1:
+			value = math.NaN()
+			ok = true
+			return
+		case 2:
+			value = math.Inf(1)
+			ok = true
+			return
+		case 3:
+			value = math.Inf(-1)
+			ok = true
+			return
+		}
+	}
+
+	if exponentVlq == 2 {
+		value = 0
+		ok = true
+		return
+	}
+	if exponentVlq == 3 {
+		value = math.Copysign(0, -1)
+		ok = true
+		return
+	}
+
+	offset := bytesDecoded
+	significand, bytesDecoded, isComplete = vlq.DecodeRvlqFrom(src[offset:])
+	bytesDecoded += offset
+	if !isComplete {
+		return
+	}
+
+	significandSign := exponentVlq & 1
+	exponentVlq >>= 1
+	exponentSign := exponentVlq & 1
+	exponentVlq >>= 1
+	exponent := int32(exponentVlq)
+
+	significantDigits = countDigits(uint64(significand))
+
+	if exponentSign == 1 {
+		exponent = -exponent
+	}
+	if significandSign == 1 {
+		significand = -significand
+	}
+
+	floatString := fmt.Sprintf("%de%d", significand, exponent)
+	_, err := fmt.Sscanf(floatString, "%f", &value)
+	if err != nil {
+		panic(fmt.Errorf("BUG: Failed to convert float string [%v]: %v", floatString, err))
+	}
+	ok = true
+
+	return
+}
+
+// Maximum byte length that this library can encode (64-bit float)
+const MaxEncodeLength = 10
+
+var digitsMax = [...]uint64{
+	0,
+	9,
+	99,
+	999,
+	9999,
+	99999,
+	999999,
+	9999999,
+	99999999,
+	999999999,
+	9999999999,
+	99999999999,
+	999999999999,
+	9999999999999,
+	99999999999999,
+	999999999999999,
+	9999999999999999,
+	99999999999999999,
+	999999999999999999,
+	9999999999999999999, // 19 digits
+	// Max digits for uint64 is 20
+}
+
+func countDigits(value uint64) int {
+	// This is MUCH faster than the string method, and 4x faster than int(math.Log10(float64(value))) + 1
+	// Subdividing any further yields no performance gains.
+	if value <= digitsMax[10] {
+		for i := 1; i < 10; i++ {
+			if value <= digitsMax[i] {
+				return i
+			}
+		}
+		return 10
+	}
+
+	for i := 11; i < 20; i++ {
+		if value <= digitsMax[i] {
+			return i
+		}
+	}
+	return 20
+}
 
 func abs32(value int32) int32 {
 	mask := value >> 31
@@ -143,108 +302,4 @@ func extractFloat(value float64, significantDigits int) (exponent int, significa
 	}
 
 	return exponent, significand
-}
-
-// Encode an iee754 binary floating point value, with the specified number of significant digits.
-// Rounding is half-to-even, meaning it rounds towards an even number when exactly halfway.
-// If significantDigits is <1 or >15, no rounding takes place.
-func Encode(value float64, significantDigits int, dst []byte) (bytesEncoded int, ok bool) {
-
-	if math.Float64bits(value) == math.Float64bits(0) {
-		return encodeZero(dst)
-	} else if value == math.Copysign(0, -1) {
-		return encodeNegativeZero(dst)
-	} else if math.IsInf(value, 1) {
-		return encodeInfinity(dst)
-	} else if math.IsInf(value, -1) {
-		return encodeNegativeInfinity(dst)
-	} else if math.IsNaN(value) {
-		return encodeQuietNan(dst)
-	}
-	// TODO: Signaling NaN
-
-	exponent, significand := extractFloat(value, significantDigits)
-
-	exponentSign := (exponent >> 31) & 1
-	significandSign := (significand >> 63) & 1
-
-	exponentVlq := vlq.Rvlq(abs32(int32(exponent)))
-	exponentVlq <<= 1
-	exponentVlq |= vlq.Rvlq(exponentSign)
-	exponentVlq <<= 1
-	exponentVlq |= vlq.Rvlq(significandSign)
-
-	significandVlq := vlq.Rvlq(abs64(significand))
-
-	bytesEncoded, ok = exponentVlq.EncodeTo(dst)
-	if !ok {
-		return bytesEncoded, ok
-	}
-	offset := bytesEncoded
-
-	bytesEncoded, ok = significandVlq.EncodeTo(dst[offset:])
-	if !ok {
-		return offset + bytesEncoded, ok
-	}
-
-	return offset + bytesEncoded, true
-}
-
-// Decode a float
-func Decode(src []byte) (value float64, bytesDecoded int, ok bool) {
-	var exponentVlq vlq.Rvlq
-	var significand vlq.Rvlq
-	var isComplete bool
-	exponentVlq, bytesDecoded, isComplete = vlq.DecodeRvlqFrom(src)
-	if !isComplete {
-		return value, bytesDecoded, isComplete
-	}
-
-	if vlq.IsExtended(src) {
-		switch exponentVlq {
-		case 0:
-			return math.NaN(), bytesDecoded, true
-		case 1:
-			// TODO: Signaling nan
-			return math.NaN(), bytesDecoded, true
-		case 2:
-			return math.Inf(1), bytesDecoded, true
-		case 3:
-			return math.Inf(-1), bytesDecoded, true
-		}
-	}
-
-	if exponentVlq == 2 {
-		return 0, bytesDecoded, true
-	}
-	if exponentVlq == 3 {
-		return math.Copysign(0, -1), bytesDecoded, true
-	}
-
-	offset := bytesDecoded
-	significand, bytesDecoded, isComplete = vlq.DecodeRvlqFrom(src[offset:])
-	if !isComplete {
-		return value, offset + bytesDecoded, isComplete
-	}
-
-	significandSign := exponentVlq & 1
-	exponentVlq >>= 1
-	exponentSign := exponentVlq & 1
-	exponentVlq >>= 1
-	exponent := int32(exponentVlq)
-
-	if exponentSign == 1 {
-		exponent = -exponent
-	}
-	if significandSign == 1 {
-		significand = -significand
-	}
-
-	floatString := fmt.Sprintf("%de%d", significand, exponent)
-	_, err := fmt.Sscanf(floatString, "%f", &value)
-	if err != nil {
-		panic(fmt.Errorf("BUG: Failed to convert float string [%v]: %v", floatString, err))
-	}
-
-	return value, offset + bytesDecoded, true
 }
