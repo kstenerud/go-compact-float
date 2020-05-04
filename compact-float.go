@@ -11,6 +11,27 @@ import (
 
 var ErrorIncomplete = fmt.Errorf("Compact float value is incomplete")
 
+func EncodeZero(sign int, dst []byte) (bytesEncoded int, ok bool) {
+	if sign < 0 {
+		return encodeNegativeZero(dst)
+	}
+	return encodeZero(dst)
+}
+
+func EncodeInfinity(sign int, dst []byte) (bytesEncoded int, ok bool) {
+	if sign < 0 {
+		return encodeNegativeInfinity(dst)
+	}
+	return encodeInfinity(dst)
+}
+
+func EncodeNaN(isSignaling bool, dst []byte) (bytesEncoded int, ok bool) {
+	if isSignaling {
+		return encodeSignalingNan(dst)
+	}
+	return encodeQuietNan(dst)
+}
+
 func Encode(value *apd.Decimal, dst []byte) (bytesEncoded int, ok bool) {
 	if value.IsZero() {
 		if value.Negative {

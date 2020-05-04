@@ -94,6 +94,91 @@ func assertNan(t *testing.T, sourceValue float64, significantDigits int, expecte
 	}
 }
 
+func assertSpecialValue(t *testing.T, expectedByteCount int,
+	f func(dst []byte) (bytesEncoded int, ok bool),
+	tst func(*apd.Decimal)) {
+	actualEncoded := make([]byte, expectedByteCount, expectedByteCount)
+	bytesEncoded, ok := f(actualEncoded)
+	if !ok {
+		t.Errorf("Could not encode into %v bytes", len(actualEncoded))
+		return
+	}
+	if bytesEncoded != expectedByteCount {
+		t.Errorf("Expected to encode into %v bytes but used %v", expectedByteCount, bytesEncoded)
+		return
+	}
+	decimalValue, bytesDecoded, err := Decode(actualEncoded)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if bytesDecoded != expectedByteCount {
+		t.Errorf("Expected to decode %v bytes but decoded %v", expectedByteCount, bytesDecoded)
+		return
+	}
+	tst(decimalValue)
+}
+
+func TestZeroAPI(t *testing.T) {
+	assertSpecialValue(t, 1,
+		func(dst []byte) (int, bool) {
+			return EncodeZero(0, dst)
+		}, func(v *apd.Decimal) {
+			if !(v.IsZero() && !v.Negative) {
+				t.Errorf("Expected 0 but got %v", v)
+			}
+		})
+
+	assertSpecialValue(t, 1,
+		func(dst []byte) (int, bool) {
+			return EncodeZero(-1, dst)
+		}, func(v *apd.Decimal) {
+			if !(v.IsZero() && v.Negative) {
+				t.Errorf("Expected -0 but got %v", v)
+			}
+		})
+}
+
+func TestInfAPI(t *testing.T) {
+	assertSpecialValue(t, 2,
+		func(dst []byte) (int, bool) {
+			return EncodeInfinity(0, dst)
+		}, func(v *apd.Decimal) {
+			if !(v.Form == apd.Infinite && !v.Negative) {
+				t.Errorf("Expected inf but got %v", v)
+			}
+		})
+
+	assertSpecialValue(t, 2,
+		func(dst []byte) (int, bool) {
+			return EncodeInfinity(-1, dst)
+		}, func(v *apd.Decimal) {
+			if !(v.Form == apd.Infinite && v.Negative) {
+				t.Errorf("Expected -inf but got %v", v)
+			}
+		})
+}
+
+func TestNanAPI(t *testing.T) {
+	assertSpecialValue(t, 2,
+		func(dst []byte) (int, bool) {
+			return EncodeNaN(true, dst)
+		}, func(v *apd.Decimal) {
+			if v.Form != apd.NaNSignaling {
+				t.Errorf("Expected signaling nan but got %v", v)
+			}
+		})
+
+	assertSpecialValue(t, 2,
+		func(dst []byte) (int, bool) {
+			return EncodeNaN(false, dst)
+		}, func(v *apd.Decimal) {
+			if v.Form != apd.NaN {
+				t.Errorf("Expected nan but got %v", v)
+			}
+		})
+}
+
 func TestZeroF64(t *testing.T) {
 	assertFloat64(t, 0, 0, 0, []byte{0x02})
 }
