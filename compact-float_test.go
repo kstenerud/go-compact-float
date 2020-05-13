@@ -10,93 +10,129 @@ import (
 	"github.com/kstenerud/go-describe"
 )
 
-func assertEncodeDecode(t *testing.T, strValue string, expectedEncoded []byte) {
+func testAPD(t *testing.T, sourceValue *apd.Decimal, expectedEncoded []byte) {
+	actualEncoded := make([]byte, 1000)
+	bytesEncoded, ok := EncodeBig(sourceValue, actualEncoded)
+	if !ok {
+		t.Errorf("Value %v: could not encode into %v bytes", sourceValue, len(actualEncoded))
+		return
+	}
+	if bytesEncoded != len(expectedEncoded) {
+		t.Errorf("Value %v: Expected to encode %v bytes but encoded %v", sourceValue, len(expectedEncoded), bytesEncoded)
+		return
+	}
+	actualEncoded = actualEncoded[:bytesEncoded]
+	if !bytes.Equal(expectedEncoded, actualEncoded) {
+		t.Errorf("Value %v: Expected encoded %v but got %v", sourceValue, describe.D(expectedEncoded), describe.D(actualEncoded))
+		return
+	}
+	value, bigValue, bytesDecoded, err := Decode(expectedEncoded)
+	if err != nil {
+		t.Errorf("Value %v: %v", sourceValue, err)
+		return
+	}
+	if bytesDecoded != len(actualEncoded) {
+		t.Errorf("Value %v: Expected to decode %v bytes but decoded %v", sourceValue, len(expectedEncoded), bytesDecoded)
+		return
+	}
+	if bigValue != nil {
+		if bigValue.Cmp(sourceValue) != 0 {
+			t.Errorf("Expected decoded big %v but got %v", sourceValue, bigValue)
+		}
+		return
+	}
+
+	expectedValue, err := DFloatFromAPD(sourceValue)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if value != expectedValue {
+		t.Errorf("Value %v: Expected decoded dfloat %v but got %v", sourceValue, expectedValue, value)
+		return
+	}
+}
+
+func testDecimal(t *testing.T, expectedValue DFloat, expectedEncoded []byte) DFloat {
+	actualEncoded := make([]byte, 15)
+	bytesEncoded, ok := Encode(expectedValue, actualEncoded)
+	if !ok {
+		t.Errorf("Value %v: could not encode into %v bytes", expectedValue, len(actualEncoded))
+		return dfloatZero
+	}
+	if bytesEncoded != len(expectedEncoded) {
+		t.Errorf("Value %v: Expected to encode %v bytes but encoded %v", expectedValue, len(expectedEncoded), bytesEncoded)
+		return dfloatZero
+	}
+	actualEncoded = actualEncoded[:bytesEncoded]
+	if !bytes.Equal(expectedEncoded, actualEncoded) {
+		t.Errorf("Value %v: Expected encoded %v but got %v", expectedValue, describe.D(expectedEncoded), describe.D(actualEncoded))
+		return dfloatZero
+	}
+	actualValue, _, bytesDecoded, err := Decode(expectedEncoded)
+	if err != nil {
+		t.Errorf("Value %v: %v", expectedValue, err)
+		return dfloatZero
+	}
+	if bytesDecoded != len(actualEncoded) {
+		t.Errorf("Value %v: Expected to decode %v bytes but decoded %v", expectedValue, len(expectedEncoded), bytesDecoded)
+		return dfloatZero
+	}
+	if actualValue != expectedValue {
+		t.Errorf("Expected %v but got %v", expectedValue, actualValue)
+		return dfloatZero
+	}
+	testAPD(t, expectedValue.APD(), expectedEncoded)
+	return actualValue
+}
+
+func assertAPD(t *testing.T, strValue string, expectedEncoded []byte) {
 	sourceValue, _, err := apd.NewFromString(strValue)
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	actualEncoded := make([]byte, 1000)
-	bytesEncoded, ok := Encode(sourceValue, actualEncoded)
-	if !ok {
-		t.Errorf("Value %v: could not encode into %v bytes", sourceValue, len(actualEncoded))
-		return
-	}
-	if bytesEncoded != len(expectedEncoded) {
-		t.Errorf("Value %v: Expected to encode %v bytes but encoded %v", sourceValue, len(expectedEncoded), bytesEncoded)
-		return
-	}
-	actualEncoded = actualEncoded[:bytesEncoded]
-	if !bytes.Equal(expectedEncoded, actualEncoded) {
-		t.Errorf("Value %v: Expected encoded %v but got %v", sourceValue, describe.D(expectedEncoded), describe.D(actualEncoded))
-		return
-	}
-	decimalValue, bytesDecoded, err := Decode(expectedEncoded)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	if bytesDecoded != len(actualEncoded) {
-		t.Errorf("Value %v: Expected to decode %v bytes but decoded %v", sourceValue, len(expectedEncoded), bytesDecoded)
-		return
-	}
-	if decimalValue.Cmp(sourceValue) != 0 {
-		t.Errorf("Expected %v but got %v", sourceValue, decimalValue)
-	}
+	testAPD(t, sourceValue, expectedEncoded)
 }
 
-func assertEncodeDecodeFloat64(t *testing.T, sourceValue float64, significantDigits int, expectedEncoded []byte) float64 {
-	actualEncoded := make([]byte, 15)
-	bytesEncoded, ok := EncodeFloat64(sourceValue, significantDigits, actualEncoded)
-	if !ok {
-		t.Errorf("Value %v: could not encode into %v bytes", sourceValue, len(actualEncoded))
-		return 0
-	}
-	if bytesEncoded != len(expectedEncoded) {
-		t.Errorf("Value %v: Expected to encode %v bytes but encoded %v", sourceValue, len(expectedEncoded), bytesEncoded)
-		return 0
-	}
-	actualEncoded = actualEncoded[:bytesEncoded]
-	if !bytes.Equal(expectedEncoded, actualEncoded) {
-		t.Errorf("Value %v: Expected encoded %v but got %v", sourceValue, describe.D(expectedEncoded), describe.D(actualEncoded))
-		return 0
-	}
-	decimalValue, bytesDecoded, err := Decode(expectedEncoded)
+func assertDecimal(t *testing.T, strValue string, expectedEncoded []byte) {
+	expectedValue, err := DFloatFromString(strValue)
 	if err != nil {
 		t.Error(err)
-		return 0
+		return
 	}
-	if bytesDecoded != len(actualEncoded) {
-		t.Errorf("Value %v: Expected to decode %v bytes but decoded %v", sourceValue, len(expectedEncoded), bytesDecoded)
-		return 0
-	}
-	actualValue, err := decimalValue.Float64()
-	if err != nil {
-		t.Error(err)
-		return 0
-	}
-	return actualValue
+	testDecimal(t, expectedValue, expectedEncoded)
 }
 
 func assertFloat64(t *testing.T, sourceValue float64, significantDigits int, expectedValue float64, expectedEncoded []byte) {
-	actualValue := assertEncodeDecodeFloat64(t, sourceValue, significantDigits, expectedEncoded)
-	actualAsString := fmt.Sprintf("%v", actualValue)
-	expectedAsString := fmt.Sprintf("%v", expectedValue)
-	if actualAsString != expectedAsString {
-		t.Errorf("Value %v: Expected decoded value %v but got %v", sourceValue, expectedValue, actualValue)
-	}
-}
+	sourceDecimal := DFloatFromFloat64(sourceValue, significantDigits)
+	actualDecimal := testDecimal(t, sourceDecimal, expectedEncoded)
+	actualValue := actualDecimal.Float()
 
-func assertNan(t *testing.T, sourceValue float64, significantDigits int, expectedEncoded []byte) {
-	actualValue := assertEncodeDecodeFloat64(t, sourceValue, significantDigits, expectedEncoded)
-	if !math.IsNaN(actualValue) {
-		t.Errorf("Value %v: Expected NaN but got %v", sourceValue, actualValue)
+	if math.IsNaN(expectedValue) {
+		if !math.IsNaN(actualValue) {
+			t.Errorf("Value %v, digits %v: Expected %v but got %v", sourceValue, significantDigits, expectedValue, actualValue)
+			return
+		}
+		expectedQuietBit := math.Float64bits(expectedValue) & quietBit
+		actualQuietBit := math.Float64bits(actualValue) & quietBit
+		if expectedQuietBit != actualQuietBit {
+			t.Errorf("Value %v, digits %v: Expected quiet bit %x but got %x", sourceValue, significantDigits, expectedQuietBit, actualQuietBit)
+			return
+		}
+	}
+
+	expectedString := fmt.Sprintf("%g", expectedValue)
+	actualString := fmt.Sprintf("%g", actualValue)
+	if actualString != expectedString {
+		t.Errorf("Value %v, digits %v: Expected string value %v but got %v", sourceValue, significantDigits, expectedString, actualString)
+		return
 	}
 }
 
 func assertSpecialValue(t *testing.T, expectedByteCount int,
 	f func(dst []byte) (bytesEncoded int, ok bool),
-	tst func(*apd.Decimal)) {
+	tst func(DFloat)) {
 	actualEncoded := make([]byte, expectedByteCount, expectedByteCount)
 	bytesEncoded, ok := f(actualEncoded)
 	if !ok {
@@ -107,7 +143,7 @@ func assertSpecialValue(t *testing.T, expectedByteCount int,
 		t.Errorf("Expected to encode into %v bytes but used %v", expectedByteCount, bytesEncoded)
 		return
 	}
-	decimalValue, bytesDecoded, err := Decode(actualEncoded)
+	decimalValue, _, bytesDecoded, err := Decode(actualEncoded)
 	if err != nil {
 		t.Error(err)
 		return
@@ -119,112 +155,74 @@ func assertSpecialValue(t *testing.T, expectedByteCount int,
 	tst(decimalValue)
 }
 
-func TestZeroAPI(t *testing.T) {
-	assertSpecialValue(t, 1,
-		func(dst []byte) (int, bool) {
-			return EncodeZero(0, dst)
-		}, func(v *apd.Decimal) {
-			if !(v.IsZero() && !v.Negative) {
-				t.Errorf("Expected 0 but got %v", v)
-			}
-		})
+// ============================================================================
+// ============================================================================
 
-	assertSpecialValue(t, 1,
-		func(dst []byte) (int, bool) {
-			return EncodeZero(-1, dst)
-		}, func(v *apd.Decimal) {
-			if !(v.IsZero() && v.Negative) {
-				t.Errorf("Expected -0 but got %v", v)
-			}
-		})
-}
+func TestAPD(t *testing.T) {
+	assertAPD(t, "0", []byte{0x02})
+	assertAPD(t, "-0", []byte{0x03})
+	assertAPD(t, "inf", []byte{0x82, 0x00})
+	assertAPD(t, "-inf", []byte{0x83, 0x00})
+	assertAPD(t, "nan", []byte{0x80, 0x00})
+	assertAPD(t, "snan", []byte{0x81, 0x00})
 
-func TestInfAPI(t *testing.T) {
-	assertSpecialValue(t, 2,
-		func(dst []byte) (int, bool) {
-			return EncodeInfinity(0, dst)
-		}, func(v *apd.Decimal) {
-			if !(v.Form == apd.Infinite && !v.Negative) {
-				t.Errorf("Expected inf but got %v", v)
-			}
-		})
+	assertAPD(t, "1", []byte{0x00, 0x01})
+	assertAPD(t, "1.5", []byte{0x06, 0x0f})
+	assertAPD(t, "-1.2", []byte{0x07, 0x0c})
+	assertAPD(t, "9.445283e+5000", []byte{0x88, 0x9c, 0x01, 0xa3, 0xbf, 0xc0, 0x04})
 
-	assertSpecialValue(t, 2,
-		func(dst []byte) (int, bool) {
-			return EncodeInfinity(-1, dst)
-		}, func(v *apd.Decimal) {
-			if !(v.Form == apd.Infinite && v.Negative) {
-				t.Errorf("Expected -inf but got %v", v)
-			}
-		})
-}
-
-func TestNanAPI(t *testing.T) {
-	assertSpecialValue(t, 2,
-		func(dst []byte) (int, bool) {
-			return EncodeNaN(true, dst)
-		}, func(v *apd.Decimal) {
-			if v.Form != apd.NaNSignaling {
-				t.Errorf("Expected signaling nan but got %v", v)
-			}
-		})
-
-	assertSpecialValue(t, 2,
-		func(dst []byte) (int, bool) {
-			return EncodeNaN(false, dst)
-		}, func(v *apd.Decimal) {
-			if v.Form != apd.NaN {
-				t.Errorf("Expected nan but got %v", v)
-			}
-		})
-}
-
-func TestZeroF64(t *testing.T) {
-	assertFloat64(t, 0, 0, 0, []byte{0x02})
-}
-
-func TestDecimal(t *testing.T) {
-	assertEncodeDecode(t, "0", []byte{0x02})
-	assertEncodeDecode(t, "-0", []byte{0x03})
-	assertEncodeDecode(t, "inf", []byte{0x82, 0x00})
-	assertEncodeDecode(t, "-inf", []byte{0x83, 0x00})
-	assertEncodeDecode(t, "nan", []byte{0x80, 0x00})
-	assertEncodeDecode(t, "snan", []byte{0x81, 0x00})
-
-	assertEncodeDecode(t, "1", []byte{0x00, 0x01})
-	assertEncodeDecode(t, "1.5", []byte{0x06, 0x0f})
-	assertEncodeDecode(t, "-1.2", []byte{0x07, 0x0c})
-	assertEncodeDecode(t, "9.445283e+5000", []byte{0x88, 0x9c, 0x01, 0xa3, 0xbf, 0xc0, 0x04})
-
-	assertEncodeDecode(t, "-9.4452837206285466345998345667683453466347345e-5000",
+	assertAPD(t, "-9.4452837206285466345998345667683453466347345e-5000",
 		[]byte{0xcf, 0x9d, 0x01, 0xd1, 0x8e, 0xa2, 0xe6, 0x83, 0x8a, 0xbf, 0xc1, 0xbb,
 			0xe1, 0xf3, 0xdf, 0xfc, 0xee, 0xac, 0xe5, 0xfe, 0xe1, 0x8f, 0xe2, 0x43})
-	assertEncodeDecode(t, "9.4452837206285466345998345667683453466347345e-5000",
+	assertAPD(t, "9.4452837206285466345998345667683453466347345e-5000",
 		[]byte{0xce, 0x9d, 0x01, 0xd1, 0x8e, 0xa2, 0xe6, 0x83, 0x8a, 0xbf, 0xc1, 0xbb,
 			0xe1, 0xf3, 0xdf, 0xfc, 0xee, 0xac, 0xe5, 0xfe, 0xe1, 0x8f, 0xe2, 0x43})
-	assertEncodeDecode(t, "-9.4452837206285466345998345667683453466347345e+5000",
+	assertAPD(t, "-9.4452837206285466345998345667683453466347345e+5000",
 		[]byte{0xf5, 0x9a, 0x01, 0xd1, 0x8e, 0xa2, 0xe6, 0x83, 0x8a, 0xbf, 0xc1, 0xbb,
 			0xe1, 0xf3, 0xdf, 0xfc, 0xee, 0xac, 0xe5, 0xfe, 0xe1, 0x8f, 0xe2, 0x43})
-	assertEncodeDecode(t, "9.4452837206285466345998345667683453466347345e+5000",
+	assertAPD(t, "9.4452837206285466345998345667683453466347345e+5000",
 		[]byte{0xf4, 0x9a, 0x01, 0xd1, 0x8e, 0xa2, 0xe6, 0x83, 0x8a, 0xbf, 0xc1, 0xbb,
 			0xe1, 0xf3, 0xdf, 0xfc, 0xee, 0xac, 0xe5, 0xfe, 0xe1, 0x8f, 0xe2, 0x43})
 }
 
-func TestNegZero(t *testing.T) {
-	negZero := math.Copysign(0, -1)
-	assertFloat64(t, negZero, 0, negZero, []byte{0x03})
+func TestDecimal(t *testing.T) {
+	assertDecimal(t, "0", []byte{0x02})
+	assertDecimal(t, "-0", []byte{0x03})
+	assertDecimal(t, "inf", []byte{0x82, 0x00})
+	assertDecimal(t, "-inf", []byte{0x83, 0x00})
+	assertDecimal(t, "nan", []byte{0x80, 0x00})
+	assertDecimal(t, "snan", []byte{0x81, 0x00})
+
+	assertDecimal(t, "1", []byte{0x00, 0x01})
+	assertDecimal(t, "1.5", []byte{0x06, 0x0f})
+	assertDecimal(t, "-1.2", []byte{0x07, 0x0c})
+	assertDecimal(t, "9.445283e+5000", []byte{0x88, 0x9c, 0x01, 0xa3, 0xbf, 0xc0, 0x04})
 }
 
-func TestInfinity(t *testing.T) {
-	assertFloat64(t, math.Inf(1), 0, math.Inf(1), []byte{0x82, 0x00})
-}
+func TestSpecialF64(t *testing.T) {
+	qnan := math.NaN()
+	qnan = math.Float64frombits(math.Float64bits(qnan) | quietBit)
+	if !math.IsNaN(qnan) {
+		t.Errorf("Expected nan but got %v", qnan)
+		return
+	}
+	snan := math.NaN()
+	snan = math.Float64frombits(math.Float64bits(snan) & ^uint64(quietBit))
+	if !math.IsNaN(snan) {
+		t.Errorf("Expected nan but got %v", snan)
+		return
+	}
+	nzero := 0.0
+	nzero = -nzero
+	inf := math.Inf(1)
+	ninf := math.Inf(-1)
 
-func TestNegativeInfinity(t *testing.T) {
-	assertFloat64(t, math.Inf(-1), 0, math.Inf(-1), []byte{0x83, 0x00})
-}
-
-func TestQuietNan(t *testing.T) {
-	assertNan(t, math.NaN(), 0, []byte{0x80, 0x00})
+	assertFloat64(t, 0, 0, 0, []byte{0x02})
+	assertFloat64(t, nzero, 0, nzero, []byte{0x03})
+	assertFloat64(t, qnan, 0, qnan, []byte{0x80, 0x00})
+	assertFloat64(t, snan, 0, snan, []byte{0x81, 0x00})
+	assertFloat64(t, inf, 0, inf, []byte{0x82, 0x00})
+	assertFloat64(t, ninf, 0, ninf, []byte{0x83, 0x00})
 }
 
 func Test1_0(t *testing.T) {
