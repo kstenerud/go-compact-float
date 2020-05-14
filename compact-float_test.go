@@ -158,6 +158,138 @@ func assertSpecialValue(t *testing.T, expectedByteCount int,
 // ============================================================================
 // ============================================================================
 
+func TestZeroTests(t *testing.T) {
+	v := Zero()
+	if !v.IsZero() {
+		t.Errorf("%v should be zero", v)
+	}
+	if v.IsNegativeZero() {
+		t.Errorf("%v should not be -0", v)
+	}
+	if v.IsInfinity() {
+		t.Errorf("%v should not be inf", v)
+	}
+	if v.IsNegativeInfinity() {
+		t.Errorf("%v should not be -inf", v)
+	}
+	if v.IsNan() {
+		t.Errorf("%v should not be NaN", v)
+	}
+	if v.IsSignalingNan() {
+		t.Errorf("%v should not be signaling NaN", v)
+	}
+}
+
+func TestNZeroTests(t *testing.T) {
+	v := NegativeZero()
+	if !v.IsZero() {
+		t.Errorf("%v should be zero", v)
+	}
+	if !v.IsNegativeZero() {
+		t.Errorf("%v should be -0", v)
+	}
+	if v.IsInfinity() {
+		t.Errorf("%v should not be inf", v)
+	}
+	if v.IsNegativeInfinity() {
+		t.Errorf("%v should not be -inf", v)
+	}
+	if v.IsNan() {
+		t.Errorf("%v should not be NaN", v)
+	}
+	if v.IsSignalingNan() {
+		t.Errorf("%v should not be signaling NaN", v)
+	}
+}
+
+func TestInfTests(t *testing.T) {
+	v := Infinity()
+	if v.IsZero() {
+		t.Errorf("%v should not be zero", v)
+	}
+	if v.IsNegativeZero() {
+		t.Errorf("%v should not be -0", v)
+	}
+	if !v.IsInfinity() {
+		t.Errorf("%v should be inf", v)
+	}
+	if v.IsNegativeInfinity() {
+		t.Errorf("%v should not be -inf", v)
+	}
+	if v.IsNan() {
+		t.Errorf("%v should not be NaN", v)
+	}
+	if v.IsSignalingNan() {
+		t.Errorf("%v should not be signaling NaN", v)
+	}
+}
+
+func TestNInfTests(t *testing.T) {
+	v := NegativeInfinity()
+	if v.IsZero() {
+		t.Errorf("%v should not be zero", v)
+	}
+	if v.IsNegativeZero() {
+		t.Errorf("%v should not be -0", v)
+	}
+	if !v.IsInfinity() {
+		t.Errorf("%v should be inf", v)
+	}
+	if !v.IsNegativeInfinity() {
+		t.Errorf("%v should be -inf", v)
+	}
+	if v.IsNan() {
+		t.Errorf("%v should not be NaN", v)
+	}
+	if v.IsSignalingNan() {
+		t.Errorf("%v should not be signaling NaN", v)
+	}
+}
+
+func TestQNanTests(t *testing.T) {
+	v := QuietNaN()
+	if v.IsZero() {
+		t.Errorf("%v should not be zero", v)
+	}
+	if v.IsNegativeZero() {
+		t.Errorf("%v should not be -0", v)
+	}
+	if v.IsInfinity() {
+		t.Errorf("%v should not be inf", v)
+	}
+	if v.IsNegativeInfinity() {
+		t.Errorf("%v should not be -inf", v)
+	}
+	if !v.IsNan() {
+		t.Errorf("%v should be NaN", v)
+	}
+	if v.IsSignalingNan() {
+		t.Errorf("%v should not be signaling NaN", v)
+	}
+}
+
+func TestSNanTests(t *testing.T) {
+	v := SignalingNaN()
+	if v.IsZero() {
+		t.Errorf("%v should not be zero", v)
+	}
+	if v.IsNegativeZero() {
+		t.Errorf("%v should not be -0", v)
+	}
+	if v.IsInfinity() {
+		t.Errorf("%v should not be inf", v)
+	}
+	if v.IsNegativeInfinity() {
+		t.Errorf("%v should not be -inf", v)
+	}
+	if !v.IsNan() {
+		t.Errorf("%v should be NaN", v)
+	}
+	if !v.IsSignalingNan() {
+		t.Errorf("%v should be signaling NaN", v)
+	}
+}
+
 func TestAPD(t *testing.T) {
 	assertAPD(t, "0", []byte{0x02})
 	assertAPD(t, "-0", []byte{0x03})

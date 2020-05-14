@@ -34,6 +34,30 @@ func DFloatValue(exponent int32, coefficient int64) DFloat {
 	}
 }
 
+func Zero() DFloat {
+	return dfloatZero.Clone()
+}
+
+func NegativeZero() DFloat {
+	return dfloatNegativeZero.Clone()
+}
+
+func Infinity() DFloat {
+	return dfloatInfinity.Clone()
+}
+
+func NegativeInfinity() DFloat {
+	return dfloatNegativeInfinity.Clone()
+}
+
+func QuietNaN() DFloat {
+	return dfloatNaN.Clone()
+}
+
+func SignalingNaN() DFloat {
+	return dfloatSignalingNaN.Clone()
+}
+
 func (this DFloat) Clone() DFloat {
 	return DFloatValue(this.Exponent, this.Coefficient)
 }
