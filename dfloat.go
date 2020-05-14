@@ -94,7 +94,26 @@ func (this DFloat) IsSignalingNan() bool {
 }
 
 func (this DFloat) String() string {
-	return this.APD().String()
+	return this.Text('g')
+}
+
+// Text converts the floating-point number x to a string according
+// to the given format. The format is one of:
+//
+//	'e'	-d.dddde±dd, decimal exponent, exponent digits
+//	'E'	-d.ddddE±dd, decimal exponent, exponent digits
+//	'f'	-ddddd.dddd, no exponent
+//	'g'	like 'e' for large exponents, like 'f' otherwise
+//	'G'	like 'E' for large exponents, like 'f' otherwise
+//
+// If format is a different character, Text returns a "%" followed by the
+// unrecognized.Format character. The 'f' format has the possibility of
+// displaying precision that is not present in the Decimal when it appends
+// zeros. All other formats always show the exact precision of the Decimal.
+//
+// This is a direct bridge to *apd.Decimal.Text()
+func (this DFloat) Text(format byte) string {
+	return this.APD().Text(format)
 }
 
 func (this DFloat) Float() float64 {

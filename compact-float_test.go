@@ -400,3 +400,40 @@ func Test0_5935555Round4(t *testing.T) {
 func Test0_1473445219134543Round6(t *testing.T) {
 	assertFloat64(t, 14.73445219134543, 6, 14.7345, []byte{0x12, 0x91, 0xff, 0x08})
 }
+
+func assertTextFormat(t *testing.T, value string, format byte, expected string) {
+	dvalue, err := DFloatFromString(value)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	actual := dvalue.Text(format)
+	if actual != expected {
+		t.Errorf("Value %v, format %c: Expected %v but got %v", dvalue, format, expected, actual)
+	}
+}
+
+func TestText(t *testing.T) {
+	assertTextFormat(t, "1.0", 'e', "1.0e+0")
+	assertTextFormat(t, "1.0", 'E', "1.0E+0")
+	assertTextFormat(t, "1.0", 'f', "1.0")
+	assertTextFormat(t, "1.0", 'g', "1.0")
+	assertTextFormat(t, "1.0", 'G', "1.0")
+
+	assertTextFormat(t, "1.2345678901234", 'e', "1.2345678901234e+0")
+	assertTextFormat(t, "1.2345678901234", 'E', "1.2345678901234E+0")
+	assertTextFormat(t, "1.2345678901234", 'f', "1.2345678901234")
+	assertTextFormat(t, "1.2345678901234", 'g', "1.2345678901234")
+	assertTextFormat(t, "1.2345678901234", 'G', "1.2345678901234")
+
+	assertTextFormat(t, "123.45678901234", 'e', "1.2345678901234e+2")
+	assertTextFormat(t, "123.45678901234", 'E', "1.2345678901234E+2")
+	assertTextFormat(t, "123.45678901234", 'f', "123.45678901234")
+	assertTextFormat(t, "123.45678901234", 'g', "123.45678901234")
+	assertTextFormat(t, "123.45678901234", 'G', "123.45678901234")
+
+	assertTextFormat(t, "1.2345678901234e+100", 'e', "1.2345678901234e+100")
+	assertTextFormat(t, "1.2345678901234e+100", 'E', "1.2345678901234E+100")
+	assertTextFormat(t, "1.2345678901234e+100", 'g', "1.2345678901234e+100")
+	assertTextFormat(t, "1.2345678901234e+100", 'G', "1.2345678901234E+100")
+}
