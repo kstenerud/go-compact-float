@@ -13,20 +13,20 @@ var ErrorIncomplete = fmt.Errorf("Compact float value is incomplete")
 func Encode(value DFloat, dst []byte) (bytesEncoded int, ok bool) {
 	if value.IsZero() {
 		if value.IsNegativeZero() {
-			return encodeNegativeZero(dst)
+			return EncodeNegativeZero(dst)
 		}
-		return encodeZero(dst)
+		return EncodeZero(dst)
 	}
 	if value.IsSpecial() {
 		switch value.Coefficient {
 		case CoeffInfinity:
-			return encodeInfinity(dst)
+			return EncodeInfinity(dst)
 		case CoeffNegativeInfinity:
-			return encodeNegativeInfinity(dst)
+			return EncodeNegativeInfinity(dst)
 		case CoeffNan:
-			return encodeQuietNan(dst)
+			return EncodeQuietNan(dst)
 		case CoeffSignalingNan:
-			return encodeSignalingNan(dst)
+			return EncodeSignalingNan(dst)
 		default:
 			panic(fmt.Errorf("%v: Illegal special coefficient", value.Coefficient))
 		}
@@ -61,20 +61,20 @@ func Encode(value DFloat, dst []byte) (bytesEncoded int, ok bool) {
 func EncodeBig(value *apd.Decimal, dst []byte) (bytesEncoded int, ok bool) {
 	if value.IsZero() {
 		if value.Negative {
-			return encodeNegativeZero(dst)
+			return EncodeNegativeZero(dst)
 		}
-		return encodeZero(dst)
+		return EncodeZero(dst)
 	}
 	switch value.Form {
 	case apd.Infinite:
 		if value.Negative {
-			return encodeNegativeInfinity(dst)
+			return EncodeNegativeInfinity(dst)
 		}
-		return encodeInfinity(dst)
+		return EncodeInfinity(dst)
 	case apd.NaN:
-		return encodeQuietNan(dst)
+		return EncodeQuietNan(dst)
 	case apd.NaNSignaling:
-		return encodeSignalingNan(dst)
+		return EncodeSignalingNan(dst)
 	}
 
 	exponent := value.Exponent
@@ -99,6 +99,30 @@ func EncodeBig(value *apd.Decimal, dst []byte) (bytesEncoded int, ok bool) {
 	}
 	bytesEncoded += offset
 	return
+}
+
+func EncodeQuietNan(dst []byte) (bytesEncoded int, ok bool) {
+	return encodeExtendedSpecialValue(dst, 0)
+}
+
+func EncodeSignalingNan(dst []byte) (bytesEncoded int, ok bool) {
+	return encodeExtendedSpecialValue(dst, 1)
+}
+
+func EncodeInfinity(dst []byte) (bytesEncoded int, ok bool) {
+	return encodeExtendedSpecialValue(dst, 2)
+}
+
+func EncodeNegativeInfinity(dst []byte) (bytesEncoded int, ok bool) {
+	return encodeExtendedSpecialValue(dst, 3)
+}
+
+func EncodeZero(dst []byte) (bytesEncoded int, ok bool) {
+	return encodeSpecialValue(dst, 2)
+}
+
+func EncodeNegativeZero(dst []byte) (bytesEncoded int, ok bool) {
+	return encodeSpecialValue(dst, 3)
 }
 
 // Decode a float.
@@ -226,30 +250,6 @@ func encodeExtendedSpecialValue(dst []byte, value byte) (bytesEncoded int, ok bo
 	dst[0] = 0x80 | value
 	dst[1] = 0
 	return 2, true
-}
-
-func encodeQuietNan(dst []byte) (bytesEncoded int, ok bool) {
-	return encodeExtendedSpecialValue(dst, 0)
-}
-
-func encodeSignalingNan(dst []byte) (bytesEncoded int, ok bool) {
-	return encodeExtendedSpecialValue(dst, 1)
-}
-
-func encodeInfinity(dst []byte) (bytesEncoded int, ok bool) {
-	return encodeExtendedSpecialValue(dst, 2)
-}
-
-func encodeNegativeInfinity(dst []byte) (bytesEncoded int, ok bool) {
-	return encodeExtendedSpecialValue(dst, 3)
-}
-
-func encodeZero(dst []byte) (bytesEncoded int, ok bool) {
-	return encodeSpecialValue(dst, 2)
-}
-
-func encodeNegativeZero(dst []byte) (bytesEncoded int, ok bool) {
-	return encodeSpecialValue(dst, 3)
 }
 
 func is32Bit() bool {
