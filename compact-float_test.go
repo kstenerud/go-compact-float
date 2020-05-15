@@ -11,7 +11,7 @@ import (
 )
 
 func testAPD(t *testing.T, sourceValue *apd.Decimal, expectedEncoded []byte) {
-	actualEncoded := make([]byte, 1000)
+	actualEncoded := make([]byte, MaxEncodeLengthBig(sourceValue))
 	bytesEncoded, ok := EncodeBig(sourceValue, actualEncoded)
 	if !ok {
 		t.Errorf("Value %v: could not encode into %v bytes", sourceValue, len(actualEncoded))
@@ -54,7 +54,7 @@ func testAPD(t *testing.T, sourceValue *apd.Decimal, expectedEncoded []byte) {
 }
 
 func testDecimal(t *testing.T, expectedValue DFloat, expectedEncoded []byte) DFloat {
-	actualEncoded := make([]byte, 15)
+	actualEncoded := make([]byte, MaxEncodeLength())
 	bytesEncoded, ok := Encode(expectedValue, actualEncoded)
 	if !ok {
 		t.Errorf("Value %v: could not encode into %v bytes", expectedValue, len(actualEncoded))

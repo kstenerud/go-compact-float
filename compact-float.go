@@ -10,6 +10,21 @@ import (
 
 var ErrorIncomplete = fmt.Errorf("Compact float value is incomplete")
 
+// Maximum number of bytes a DFloat (or float64) can occupy while encoded
+func MaxEncodeLength() int {
+	// (64 bits / 7) + (33 bits / 7)
+	return 10 + 5
+}
+
+// Maximum number of bytes a particular apd.Decimal can occupy while encoded.
+// This is an estimate; it may be smaller, but never bigger.
+func MaxEncodeLengthBig(value *apd.Decimal) int {
+	if is32Bit() {
+		return len(value.Coeff.Bits())*32/7 + 1 + 5
+	}
+	return len(value.Coeff.Bits())*64/7 + 1 + 5
+}
+
 func Encode(value DFloat, dst []byte) (bytesEncoded int, ok bool) {
 	if value.IsZero() {
 		if value.IsNegativeZero() {
