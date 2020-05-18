@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/big"
 	"strconv"
+	"strings"
 
 	"github.com/cockroachdb/apd"
 )
@@ -199,9 +200,71 @@ func DFloatFromFloat64(value float64, significantDigits int) DFloat {
 	}
 
 	asString := strconv.FormatFloat(value, 'g', -1, 64)
-	return decodeFromString(asString, significantDigits)
+	d, err := decodeFromString(asString, significantDigits)
+	if err != nil {
+		panic(fmt.Errorf("BUG: error decoding stringified float64: %v", err))
+	}
+	return d
 }
 
+// Convert an unsigned int to DFloat. If the value is too big to fit, its lowest
+// significant digit will be rounded (half-to-even).
+func DFloatFromUInt(value uint64) DFloat {
+	if value <= 0x7fffffffffffffff {
+		return DFloat{
+			Coefficient: int64(value),
+		}
+	}
+
+	remainder := value % 10
+	value /= 10
+	if remainder >= 5 {
+		if remainder == 5 {
+			if value&1 == 1 {
+				value++
+			}
+		} else {
+			value++
+		}
+	}
+	return DFloat{
+		Exponent:    1,
+		Coefficient: int64(value),
+	}
+}
+
+// Convert a big.Int to DFloat. If the value is too big to fit, its lower
+// significant digits will be rounded (half-to-even).
+func DFloatFromBigInt(value *big.Int) DFloat {
+	if value.IsInt64() {
+		return DFloat{
+			Coefficient: value.Int64(),
+		}
+	}
+
+	bi := *value
+
+	for !bi.IsInt64() {
+
+	}
+
+	if is32Bit() {
+	} else {
+		// TODO: Need the last truncated digit to implement round-half-to-even
+		magnitude := big.NewInt(100)
+		for len(bi.Bits()) > 1 {
+			bi.Div(&bi, magnitude)
+		}
+		if bi.Bits()[0] > 0x7fffffffffffffff {
+			bi.Div(&bi, big.NewInt(10))
+		}
+
+	}
+	return DFloat{}
+}
+
+// Convert an apd.Decimal to DFloat. If the value is too big to fit, its lower
+// significant digits will be rounded (half-to-even).
 func DFloatFromAPD(value *apd.Decimal) (result DFloat, err error) {
 	if value.IsZero() {
 		if value.Negative {
@@ -221,112 +284,212 @@ func DFloatFromAPD(value *apd.Decimal) (result DFloat, err error) {
 		return dfloatSignalingNaN.Clone(), nil
 	}
 
-	if !value.Coeff.IsInt64() {
-		err = fmt.Errorf("%v cannot fit into a DFloat", value)
+	if value.Coeff.IsInt64() {
+		result = DFloat{
+			Exponent:    value.Exponent,
+			Coefficient: value.Coeff.Int64(),
+		}
+		if value.Negative {
+			result.Coefficient = -result.Coefficient
+		}
 		return
 	}
 
-	result = DFloat{
-		Exponent:    value.Exponent,
-		Coefficient: value.Coeff.Int64(),
-	}
-	if value.Negative {
-		result.Coefficient = -result.Coefficient
-	}
-	return
+	return DFloatFromString(value.String())
 }
 
+// Convert a string float representation to DFloat. If the value is too big to
+// fit, its lower significant digits will be rounded (half-to-even).
 func DFloatFromString(str string) (result DFloat, err error) {
-	var stackAlloced apd.Decimal
-	value, _, err := apd.BaseContext.SetString(&stackAlloced, str)
-	if err != nil {
-		return
-	}
-	result, err = DFloatFromAPD(value)
-	return
+	return decodeFromString(str, 0)
 }
 
-func decodeFromString(value string, significantDigits int) DFloat {
-	// No inf or nan. Format: (-)d+(.d+)(e[+-]d+)
-	encounteredDot := false
-	encounteredExp := false
-	isRounding := false
+var digitsMax = []uint64{
+	0, 9, 99, 999, 9999, 99999, 999999, 9999999, 99999999, 999999999,
+	9999999999, 99999999999, 999999999999, 9999999999999, 99999999999999,
+	999999999999999, 9999999999999999, 99999999999999999, 999999999999999999,
+	9999999999999999999,
+}
+
+func decodeFromString(value string, significantDigits int) (result DFloat, err error) {
+	if len(value) < 1 {
+		return DFloat{}, nil
+	}
+
+	const significandCap = uint64(0x7fffffffffffffff)
+
+	significandMax := uint64(0)
+	significandMaxDigits := len(digitsMax) - 1
+	if significantDigits <= 0 || significantDigits > significandMaxDigits {
+		significandMax = uint64(0x7fffffffffffffff)
+	} else {
+		significandMax = digitsMax[significantDigits]
+	}
+
+	cutoffDigitCount := 0
+	fractionalDigitCount := 0
+
+	exponent := int64(0)
+	significand := uint64(0)
 	significandSign := int64(1)
-	exponentFromString := int32(0)
-	exponentSign := int32(1)
-	startIndex := 0
+	rounded := 0
+	firstRounded := true
 
 	if value[0] == '-' {
 		significandSign = -1
-		startIndex++
+		value = value[1:]
 	}
 
-	exponent := int32(0)
-	coefficient := int64(0)
-	digitCount := 0
-	rounded := int64(0)
-	roundedDivider := 1
-	lastSigDigit := int32(0)
-	for i := startIndex; i < len(value); i++ {
-		ch := value[i]
-		switch ch {
-		case '.':
-			encounteredDot = true
-			continue
-		case 'e', 'E':
-			encounteredExp = true
-			continue
-		case '-':
+	if value[0] >= 'A' {
+		value := strings.ToLower(value)
+		switch value {
+		case "inf", "infinity":
+			if significandSign < 0 {
+				result = dfloatNegativeInfinity.Clone()
+			} else {
+				result = dfloatInfinity.Clone()
+			}
+			return
+		case "nan":
+			if significandSign < 0 {
+				err = fmt.Errorf("NaN cannot be negative")
+				return
+			}
+			result = dfloatNaN.Clone()
+			return
+		case "snan":
+			if significandSign < 0 {
+				err = fmt.Errorf("NaN cannot be negative")
+				return
+			}
+			result = dfloatSignalingNaN.Clone()
+			return
+		default:
+			err = fmt.Errorf("%v: Not a floating point value", value)
+		}
+	}
+
+	decodeExponent := func(str string) error {
+		const exponentCap = int64(0x7fffffff)
+		exponentSign := int64(1)
+		if str[0] == '-' {
 			exponentSign = -1
-			continue
-		case '+':
-			exponentSign = 1
-			continue
+			str = str[1:]
+		} else if str[0] == '+' {
+			str = str[1:]
 		}
 
-		nextDigit := int32(ch - '0')
-
-		if encounteredExp {
-			exponentFromString = exponentFromString*10 + nextDigit
-			continue
+		for _, ch := range str {
+			if ch < '0' || ch > '9' {
+				return fmt.Errorf("%c: Unexpected character while decoding DFloat exponent", ch)
+			}
+			exponent = exponent*10 + int64(ch-'0')
+			if exponent > exponentCap {
+				return fmt.Errorf("Exponent overflow while decoding DFloat")
+			}
 		}
-		if isRounding {
-			rounded = rounded*10 + int64(nextDigit)
-			roundedDivider = roundedDivider * 10
-			continue
-		}
-
-		if digitCount > 1 || nextDigit > 0 {
-			digitCount++
-		}
-		if significantDigits > 0 && digitCount >= significantDigits {
-			lastSigDigit = nextDigit
-			isRounding = true
-		}
-		coefficient = coefficient*10 + int64(nextDigit)
-		if encounteredDot {
-			exponent--
-		}
+		exponent *= exponentSign
+		return nil
 	}
-	exponent += exponentFromString * exponentSign
-	coefficient = coefficient * significandSign
-	fractional := float64(rounded) / float64(roundedDivider)
-	if fractional != 0 {
-		if fractional > 0.5 {
-			coefficient++
-		} else if fractional < 0.5 {
-			coefficient--
-		} else if lastSigDigit&1 == 1 {
-			coefficient++
-		} else {
-			coefficient--
+
+	decodeRoundedFractional := func(str string) error {
+		for i, ch := range str {
+			switch ch {
+			case 'e', 'E':
+				return decodeExponent(str[i+1:])
+			}
+			if ch < '0' || ch > '9' {
+				return fmt.Errorf("%c: Unexpected character while decoding DFloat", ch)
+			}
+			if firstRounded || rounded == 5 {
+				rounded = rounded + int(ch-'0')
+				firstRounded = false
+			}
 		}
+		return nil
+	}
+
+	decodeFractional := func(str string) error {
+		for i, ch := range str {
+			switch ch {
+			case 'e', 'E':
+				return decodeExponent(str[i+1:])
+			}
+			if ch < '0' || ch > '9' {
+				return fmt.Errorf("%c: Unexpected character while decoding DFloat fractional", ch)
+			}
+			nextSignificand := significand*10 + uint64(ch-'0')
+			if nextSignificand > significandMax {
+				return decodeRoundedFractional(str[i:])
+			}
+			significand = nextSignificand
+			fractionalDigitCount++
+		}
+		return nil
+	}
+
+	decodeRounded := func(str string) error {
+		for i, ch := range str {
+			switch ch {
+			case '.':
+				return decodeRoundedFractional(str[i+1:])
+			case 'e', 'E':
+				return decodeExponent(str[i+1:])
+			}
+			if ch < '0' || ch > '9' {
+				return fmt.Errorf("%c: Unexpected character while decoding DFloat fractional", ch)
+			}
+			if firstRounded || rounded == 5 {
+				rounded = rounded + int(ch-'0')
+				firstRounded = false
+			}
+			cutoffDigitCount++
+		}
+		return nil
+	}
+
+	decodeSignificand := func(str string) error {
+		for i, ch := range str {
+			switch ch {
+			case '.':
+				return decodeFractional(str[i+1:])
+			case 'e', 'E':
+				return decodeExponent(str[i+1:])
+			}
+			if ch < '0' || ch > '9' {
+				return fmt.Errorf("%c: Unexpected character while decoding DFloat significand", ch)
+			}
+			nextSignificand := significand*10 + uint64(ch-'0')
+			if nextSignificand > significandMax {
+				return decodeRounded(str[i:])
+			}
+			significand = nextSignificand
+		}
+		return nil
+	}
+
+	if err := decodeSignificand(value); err != nil {
+		return DFloat{}, err
+	}
+
+	if rounded > 5 || (rounded == 5 && significand&1 == 1) {
+		significand++
+	}
+
+	exponent += int64(cutoffDigitCount)
+	exponent -= int64(fractionalDigitCount)
+
+	if significand == 0 && significandSign < 0 {
+		return DFloat{
+			Coefficient: CoeffNegativeZero,
+			Exponent:    ExpSpecial,
+		}, nil
 	}
 
 	return DFloat{
-		Exponent:    exponent,
-		Coefficient: coefficient,
-	}
+		Coefficient: int64(significand) * significandSign,
+		Exponent:    int32(exponent),
+	}, nil
 }
 
 const quietBit = 1 << 50

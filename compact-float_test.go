@@ -437,3 +437,43 @@ func TestText(t *testing.T) {
 	assertTextFormat(t, "1.2345678901234e+100", 'g', "1.2345678901234e+100")
 	assertTextFormat(t, "1.2345678901234e+100", 'G', "1.2345678901234E+100")
 }
+
+func TestUIntNoTruncate(t *testing.T) {
+	v := uint64(9223372036854775807)
+	df := DFloatFromUInt(v)
+	expected := fmt.Sprint(v)
+	actual := fmt.Sprint(df)
+	if actual != expected {
+		t.Errorf("Expected %v but got %v", expected, actual)
+	}
+}
+
+func TestUIntTruncate(t *testing.T) {
+	v := uint64(9223372036854775808)
+	df := DFloatFromUInt(v)
+	expected := "9.22337203685477581e+18"
+	actual := fmt.Sprint(df)
+	if actual != expected {
+		t.Errorf("Expected %v but got %v", expected, actual)
+	}
+}
+
+func TestUIntTruncateRoundUp(t *testing.T) {
+	v := uint64(9223372036854775815)
+	df := DFloatFromUInt(v)
+	expected := "9.22337203685477582e+18"
+	actual := fmt.Sprint(df)
+	if actual != expected {
+		t.Errorf("Expected %v but got %v", expected, actual)
+	}
+}
+
+func TestUIntTruncateRoundDown(t *testing.T) {
+	v := uint64(9223372036854775825)
+	df := DFloatFromUInt(v)
+	expected := "9.22337203685477582e+18"
+	actual := fmt.Sprint(df)
+	if actual != expected {
+		t.Errorf("Expected %v but got %v", expected, actual)
+	}
+}
