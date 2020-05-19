@@ -117,6 +117,20 @@ func (this DFloat) Text(format byte) string {
 	return this.APD().Text(format)
 }
 
+// Returns the int64 representation of this value. Returns an error if the value
+// cannot fit.
+func (this DFloat) Int() (int64, error) {
+	return strconv.ParseInt(this.String(), 10, 64)
+}
+
+// Returns the uint64 representation of this value. Returns an error if the value
+// cannot fit.
+func (this DFloat) Uint() (uint64, error) {
+	return strconv.ParseUint(this.String(), 10, 64)
+}
+
+// Returns the float64 representation of this value. The result will be rounded
+// according to strconv.ParseFloat() if it doesn't fit.
 func (this DFloat) Float() float64 {
 	switch this {
 	case dfloatZero:
@@ -136,21 +150,15 @@ func (this DFloat) Float() float64 {
 		return math.Float64frombits(math.Float64bits(math.NaN()) & ^uint64(quietBit))
 	}
 
-	coefficient := this.Coefficient
-	if coefficient < 0 {
-		coefficient = -coefficient
+	result, err := strconv.ParseFloat(this.String(), 64)
+	if err != nil {
+		panic(fmt.Errorf("BUG: error decoding stringified DFloat %v: %v", this, err))
 	}
-
-	apdForm := apd.Decimal{
-		Negative: this.Coefficient < 0,
-		Exponent: this.Exponent,
-		Coeff:    *big.NewInt(coefficient),
-	}
-
-	result, _ := strconv.ParseFloat(apdForm.Text('g'), 64)
 	return result
 }
 
+// Returns the apd.Decimal representation of this value. All DFloat values can
+// be represented as apd.Decimal.
 func (this DFloat) APD() *apd.Decimal {
 	switch this {
 	case dfloatNegativeZero:
@@ -202,7 +210,7 @@ func DFloatFromFloat64(value float64, significantDigits int) DFloat {
 	asString := strconv.FormatFloat(value, 'g', -1, 64)
 	d, err := decodeFromString(asString, significantDigits)
 	if err != nil {
-		panic(fmt.Errorf("BUG: error decoding stringified float64: %v", err))
+		panic(fmt.Errorf("BUG: error decoding stringified float64 %g: %v", value, err))
 	}
 	return d
 }
@@ -237,30 +245,14 @@ func DFloatFromUInt(value uint64) DFloat {
 // significant digits will be rounded (half-to-even).
 func DFloatFromBigInt(value *big.Int) DFloat {
 	if value.IsInt64() {
-		return DFloat{
-			Coefficient: value.Int64(),
-		}
+		return DFloatValue(0, value.Int64())
 	}
 
-	bi := *value
-
-	for !bi.IsInt64() {
-
+	if value.IsUint64() {
+		return DFloatFromUInt(value.Uint64())
 	}
 
-	if is32Bit() {
-	} else {
-		// TODO: Need the last truncated digit to implement round-half-to-even
-		magnitude := big.NewInt(100)
-		for len(bi.Bits()) > 1 {
-			bi.Div(&bi, magnitude)
-		}
-		if bi.Bits()[0] > 0x7fffffffffffffff {
-			bi.Div(&bi, big.NewInt(10))
-		}
-
-	}
-	return DFloat{}
+	return DFloatFromAPD(apd.NewWithBigInt(value, 0))
 }
 
 // Convert an apd.Decimal to DFloat. If the value is too big to fit, its lower
@@ -345,7 +337,7 @@ func decodeFromString(value string, significantDigits int) (result DFloat, err e
 		value = value[1:]
 	}
 
-	if value[0] >= 'A' {
+	if value[0] > '9' {
 		value := strings.ToLower(value)
 		switch value {
 		case "inf", "infinity":

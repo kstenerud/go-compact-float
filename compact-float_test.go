@@ -98,6 +98,10 @@ func assertDecimal(t *testing.T, strValue string, expectedEncoded []byte) {
 		return
 	}
 	testDecimal(t, expectedValue, expectedEncoded)
+	fromAPD := DFloatFromAPD(expectedValue.APD())
+	if fromAPD != expectedValue {
+		t.Errorf("Expected conversion from APD to be %v but got %v", expectedValue, fromAPD)
+	}
 }
 
 func assertFloat64(t *testing.T, sourceValue float64, significantDigits int, expectedValue float64, expectedEncoded []byte) {
