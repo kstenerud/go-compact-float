@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cockroachdb/apd"
+	"github.com/cockroachdb/apd/v2"
 )
 
 const ExpSpecial = int32(-0x80000000)
@@ -265,37 +265,42 @@ func DFloatFromBigInt(value *big.Int) DFloat {
 
 // Convert an apd.Decimal to DFloat. If the value is too big to fit, its lower
 // significant digits will be rounded (half-to-even).
-func DFloatFromAPD(value *apd.Decimal) (result DFloat, err error) {
+func DFloatFromAPD(value *apd.Decimal) DFloat {
 	if value.IsZero() {
 		if value.Negative {
-			return dfloatNegativeZero.Clone(), nil
+			return dfloatNegativeZero.Clone()
 		}
-		return dfloatZero.Clone(), nil
+		return dfloatZero.Clone()
 	}
 	switch value.Form {
 	case apd.Infinite:
 		if value.Negative {
-			return dfloatNegativeInfinity.Clone(), nil
+			return dfloatNegativeInfinity.Clone()
 		}
-		return dfloatInfinity.Clone(), nil
+		return dfloatInfinity.Clone()
 	case apd.NaN:
-		return dfloatNaN.Clone(), nil
+		return dfloatNaN.Clone()
 	case apd.NaNSignaling:
-		return dfloatSignalingNaN.Clone(), nil
+		return dfloatSignalingNaN.Clone()
 	}
 
 	if value.Coeff.IsInt64() {
-		result = DFloat{
+		result := DFloat{
 			Exponent:    value.Exponent,
 			Coefficient: value.Coeff.Int64(),
 		}
 		if value.Negative {
 			result.Coefficient = -result.Coefficient
 		}
-		return
+		return result
 	}
 
-	return DFloatFromString(value.String())
+	str := value.Text('g')
+	df, err := DFloatFromString(str)
+	if err != nil {
+		panic(fmt.Errorf("BUG: Could not parse \"%v\" from apd float value", str))
+	}
+	return df
 }
 
 // Convert a string float representation to DFloat. If the value is too big to

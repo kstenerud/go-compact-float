@@ -13,7 +13,7 @@ Library Usage
 import (
 	"fmt"
 
-	"github.com/cockroachdb/apd"
+	"github.com/cockroachdb/apd/v2"
 	"github.com/kstenerud/go-compact-float"
 )
 

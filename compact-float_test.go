@@ -6,7 +6,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/cockroachdb/apd"
+	"github.com/cockroachdb/apd/v2"
 	"github.com/kstenerud/go-describe"
 )
 
@@ -42,11 +42,7 @@ func testAPD(t *testing.T, sourceValue *apd.Decimal, expectedEncoded []byte) {
 		return
 	}
 
-	expectedValue, err := DFloatFromAPD(sourceValue)
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	expectedValue := DFloatFromAPD(sourceValue)
 	if value != expectedValue {
 		t.Errorf("Value %v: Expected decoded dfloat %v but got %v", sourceValue, expectedValue, value)
 		return
@@ -329,6 +325,13 @@ func TestDecimal(t *testing.T) {
 	assertDecimal(t, "1.5", []byte{0x06, 0x0f})
 	assertDecimal(t, "-1.2", []byte{0x07, 0x0c})
 	assertDecimal(t, "9.445283e+5000", []byte{0x88, 0x9c, 0x01, 0xa3, 0xbf, 0xc0, 0x04})
+
+	// 0x7fffffffffffffff
+	assertDecimal(t, "9223372036854775807", []byte{0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f})
+	// 0x8000000000000000, rounded
+	assertDecimal(t, "9223372036854775808", []byte{0x04, 0xcd, 0x99, 0xb3, 0xe6, 0xcc, 0x99, 0xb3, 0xe6, 0x0c})
+	assertDecimal(t, "9223372036854775809", []byte{0x04, 0xcd, 0x99, 0xb3, 0xe6, 0xcc, 0x99, 0xb3, 0xe6, 0x0c})
+	assertDecimal(t, "9223372036854775815", []byte{0x04, 0xce, 0x99, 0xb3, 0xe6, 0xcc, 0x99, 0xb3, 0xe6, 0x0c})
 }
 
 func TestSpecialF64(t *testing.T) {
