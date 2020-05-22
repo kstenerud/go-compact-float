@@ -39,10 +39,10 @@ const (
 	CoeffSignalingNan     = 6
 )
 
-// DFloat represents a decimal floating point value. It supports coefficient
-// values within the range of int64, and exponent values from -0x7fffffff to
-// 0x7fffffff. The exponent value -0x80000000 is used to indicate special
-// values, and is not allowed as an actual exponent value.
+// DFloat represents a decimal floating point value in 96 bits.
+// It supports coefficient values within the range of int64, and exponent
+// values from -0x7fffffff to 0x7fffffff. The exponent -0x80000000 is used to
+// indicate special values, and is not allowed as an actual exponent value.
 type DFloat struct {
 	Exponent    int32
 	Coefficient int64
@@ -52,158 +52,7 @@ func DFloatValue(exponent int32, coefficient int64) DFloat {
 	return DFloat{
 		Exponent:    exponent,
 		Coefficient: coefficient,
-	}
-}
-
-func Zero() DFloat {
-	return dfloatZero.Clone()
-}
-
-func NegativeZero() DFloat {
-	return dfloatNegativeZero.Clone()
-}
-
-func Infinity() DFloat {
-	return dfloatInfinity.Clone()
-}
-
-func NegativeInfinity() DFloat {
-	return dfloatNegativeInfinity.Clone()
-}
-
-func QuietNaN() DFloat {
-	return dfloatNaN.Clone()
-}
-
-func SignalingNaN() DFloat {
-	return dfloatSignalingNaN.Clone()
-}
-
-func (this DFloat) Clone() DFloat {
-	return DFloatValue(this.Exponent, this.Coefficient)
-}
-
-func (this DFloat) IsSpecial() bool {
-	return this.Exponent == ExpSpecial
-}
-
-// Returns true if the value is positive or negative zero
-func (this DFloat) IsZero() bool {
-	return this.Coefficient == 0
-}
-
-// Returns true if the value is positive or negative infinity
-func (this DFloat) IsInfinity() bool {
-	return this.IsSpecial() && this.Coefficient&CoeffInfinity != 0
-}
-
-// Returns true if the value is a quiet or signaling NaN
-func (this DFloat) IsNan() bool {
-	return this.IsSpecial() && this.Coefficient&CoeffNan != 0
-}
-
-func (this DFloat) IsNegativeZero() bool {
-	return this == dfloatNegativeZero
-}
-
-func (this DFloat) IsNegativeInfinity() bool {
-	return this == dfloatNegativeInfinity
-}
-
-func (this DFloat) IsSignalingNan() bool {
-	return this == dfloatSignalingNaN
-}
-
-func (this DFloat) String() string {
-	return this.Text('g')
-}
-
-// Text converts the floating-point number x to a string according
-// to the given format. The format is one of:
-//
-//	'e'	-d.dddde±dd, decimal exponent, exponent digits
-//	'E'	-d.ddddE±dd, decimal exponent, exponent digits
-//	'f'	-ddddd.dddd, no exponent
-//	'g'	like 'e' for large exponents, like 'f' otherwise
-//	'G'	like 'E' for large exponents, like 'f' otherwise
-//
-// If format is a different character, Text returns a "%" followed by the
-// unrecognized.Format character. The 'f' format has the possibility of
-// displaying precision that is not present in the Decimal when it appends
-// zeros. All other formats always show the exact precision of the Decimal.
-//
-// This is a direct bridge to *apd.Decimal.Text()
-func (this DFloat) Text(format byte) string {
-	return this.APD().Text(format)
-}
-
-// Returns the int64 representation of this value. Returns an error if the value
-// cannot fit.
-func (this DFloat) Int() (int64, error) {
-	return strconv.ParseInt(this.String(), 10, 64)
-}
-
-// Returns the uint64 representation of this value. Returns an error if the value
-// cannot fit.
-func (this DFloat) Uint() (uint64, error) {
-	return strconv.ParseUint(this.String(), 10, 64)
-}
-
-// Returns the float64 representation of this value. The result will be rounded
-// according to strconv.ParseFloat() if it doesn't fit.
-func (this DFloat) Float() float64 {
-	switch this {
-	case dfloatZero:
-		return 0.0
-	case dfloatNegativeZero:
-		// Go doesn't handle literal -0.0 by design
-		v := 0.0
-		v = -v
-		return v
-	case dfloatInfinity:
-		return math.Inf(1)
-	case dfloatNegativeInfinity:
-		return math.Inf(-1)
-	case dfloatNaN:
-		return math.Float64frombits(math.Float64bits(math.NaN()) | uint64(quietBit))
-	case dfloatSignalingNaN:
-		return math.Float64frombits(math.Float64bits(math.NaN()) & ^uint64(quietBit))
-	}
-
-	result, err := strconv.ParseFloat(this.String(), 64)
-	if err != nil {
-		panic(fmt.Errorf("BUG: error decoding stringified DFloat %v: %v", this, err))
-	}
-	return result
-}
-
-// Returns the apd.Decimal representation of this value. All DFloat values can
-// be represented as apd.Decimal.
-func (this DFloat) APD() *apd.Decimal {
-	switch this {
-	case dfloatNegativeZero:
-		v := apd.New(0, 0)
-		v.Negative = true
-		return v
-	case dfloatInfinity:
-		v := apd.New(0, 0)
-		v.Form = apd.Infinite
-		return v
-	case dfloatNegativeInfinity:
-		v := apd.New(0, 0)
-		v.Form = apd.Infinite
-		v.Negative = true
-		return v
-	case dfloatNaN:
-		v := apd.New(0, 0)
-		v.Form = apd.NaN
-		return v
-	case dfloatSignalingNaN:
-		v := apd.New(0, 0)
-		v.Form = apd.NaNSignaling
-		return v
-	}
-	return apd.New(this.Coefficient, this.Exponent)
+	}.minimized()
 }
 
 // Convert an iee754 binary floating point value to DFloat, with the specified
@@ -297,28 +146,245 @@ func DFloatFromAPD(value *apd.Decimal) DFloat {
 	}
 
 	if value.Coeff.IsInt64() {
-		result := DFloat{
+		d := DFloat{
 			Exponent:    value.Exponent,
 			Coefficient: value.Coeff.Int64(),
-		}
+		}.minimized()
 		if value.Negative {
-			result.Coefficient = -result.Coefficient
+			d.Coefficient = -d.Coefficient
 		}
-		return result
+		return d
 	}
 
 	str := value.Text('g')
-	df, err := DFloatFromString(str)
+	d, err := DFloatFromString(str)
 	if err != nil {
 		panic(fmt.Errorf("BUG: Could not parse \"%v\" from apd float value", str))
 	}
-	return df
+	return d
 }
 
 // Convert a string float representation to DFloat. If the value is too big to
 // fit, its lower significant digits will be rounded (half-to-even).
-func DFloatFromString(str string) (result DFloat, err error) {
+func DFloatFromString(str string) (DFloat, error) {
 	return decodeFromString(str, 0)
+}
+
+func Zero() DFloat {
+	return dfloatZero.Clone()
+}
+
+func NegativeZero() DFloat {
+	return dfloatNegativeZero.Clone()
+}
+
+func Infinity() DFloat {
+	return dfloatInfinity.Clone()
+}
+
+func NegativeInfinity() DFloat {
+	return dfloatNegativeInfinity.Clone()
+}
+
+func QuietNaN() DFloat {
+	return dfloatNaN.Clone()
+}
+
+func SignalingNaN() DFloat {
+	return dfloatSignalingNaN.Clone()
+}
+
+func (this DFloat) Clone() DFloat {
+	return DFloatValue(this.Exponent, this.Coefficient)
+}
+
+func (this DFloat) IsSpecial() bool {
+	return this.Exponent == ExpSpecial
+}
+
+// Returns true if the value is positive or negative zero
+func (this DFloat) IsZero() bool {
+	return this.Coefficient == 0
+}
+
+// Returns true if the value is positive or negative infinity
+func (this DFloat) IsInfinity() bool {
+	return this.IsSpecial() && this.Coefficient&CoeffInfinity != 0
+}
+
+// Returns true if the value is a quiet or signaling NaN
+func (this DFloat) IsNan() bool {
+	return this.IsSpecial() && this.Coefficient&CoeffNan != 0
+}
+
+func (this DFloat) IsNegativeZero() bool {
+	return this == dfloatNegativeZero
+}
+
+func (this DFloat) IsNegativeInfinity() bool {
+	return this == dfloatNegativeInfinity
+}
+
+func (this DFloat) IsSignalingNan() bool {
+	return this == dfloatSignalingNaN
+}
+
+func (this DFloat) String() string {
+	return this.Text('g')
+}
+
+// Text converts the floating-point number x to a string according
+// to the given format. The format is one of:
+//
+//	'e'	-d.dddde±dd, decimal exponent, exponent digits
+//	'E'	-d.ddddE±dd, decimal exponent, exponent digits
+//	'f'	-ddddd.dddd, no exponent
+//	'g'	like 'e' for large exponents, like 'f' otherwise
+//	'G'	like 'E' for large exponents, like 'f' otherwise
+//
+// If format is a different character, Text returns a "%" followed by the
+// unrecognized.Format character. The 'f' format has the possibility of
+// displaying precision that is not present in the Decimal when it appends
+// zeros. All other formats always show the exact precision of the Decimal.
+//
+// This method call is forwarded to *apd.Decimal.Text()
+func (this DFloat) Text(format byte) string {
+	return this.APD().Text(format)
+}
+
+// Returns the int64 representation of this value.
+// Returns an error if the value cannot fit.
+func (this DFloat) Int() (int64, error) {
+	if this.Exponent < 0 {
+		return 0, fmt.Errorf("%v cannot fit into int: Not a whole number", this)
+	}
+	if int(this.Exponent) >= len(exponentMultipliers)-1 {
+		return 0, fmt.Errorf("%v cannot fit into int: Exponent too big", this)
+	}
+	expMult := int64(exponentMultipliers[this.Exponent])
+	result := this.Coefficient * expMult
+	if result < 0 || result/expMult != this.Coefficient {
+		return 0, fmt.Errorf("%v cannot fit into uint: Value too big", this)
+	}
+	return result, nil
+}
+
+// Returns the uint64 representation of this value.
+// Returns an error if the value cannot fit.
+func (this DFloat) Uint() (uint64, error) {
+	if this.Exponent < 0 {
+		return 0, fmt.Errorf("%v cannot fit into uint: Not a whole number", this)
+	}
+	if int(this.Exponent) >= len(exponentMultipliers) {
+		return 0, fmt.Errorf("%v cannot fit into uint: Exponent too big", this)
+	}
+	expMult := exponentMultipliers[this.Exponent]
+	result := uint64(this.Coefficient) * expMult
+	if result/expMult != uint64(this.Coefficient) {
+		return 0, fmt.Errorf("%v cannot fit into uint: Value too big", this)
+	}
+	return result, nil
+}
+
+// Returns the big.Int representation of this value.
+// Returns an error if the value is not a whole number.
+func (this DFloat) BigInt() (*big.Int, error) {
+	if this.Exponent < 0 {
+		return nil, fmt.Errorf("%v cannot fit into big.Int: Not a whole number", this)
+	}
+	ten := big.NewInt(10)
+	exp := big.NewInt(int64(this.Exponent))
+	exp.Exp(ten, exp, nil)
+	return exp.Mul(exp, big.NewInt(this.Coefficient)), nil
+}
+
+// Returns the float64 representation of this value. The result will be rounded
+// according to strconv.ParseFloat() if it doesn't fit.
+func (this DFloat) Float() float64 {
+	switch this {
+	case dfloatZero:
+		return 0.0
+	case dfloatNegativeZero:
+		// Go doesn't handle literal -0.0 by design
+		v := 0.0
+		v = -v
+		return v
+	case dfloatInfinity:
+		return math.Inf(1)
+	case dfloatNegativeInfinity:
+		return math.Inf(-1)
+	case dfloatNaN:
+		return math.Float64frombits(math.Float64bits(math.NaN()) | uint64(quietBit))
+	case dfloatSignalingNaN:
+		return math.Float64frombits(math.Float64bits(math.NaN()) & ^uint64(quietBit))
+	}
+
+	result, err := strconv.ParseFloat(this.String(), 64)
+	if err != nil {
+		panic(fmt.Errorf("BUG: error decoding stringified DFloat %v: %v", this, err))
+	}
+	return result
+}
+
+// Returns the apd.Decimal representation of this value. All DFloat values can
+// be represented as apd.Decimal.
+func (this DFloat) APD() *apd.Decimal {
+	switch this {
+	case dfloatNegativeZero:
+		v := apd.New(0, 0)
+		v.Negative = true
+		return v
+	case dfloatInfinity:
+		v := apd.New(0, 0)
+		v.Form = apd.Infinite
+		return v
+	case dfloatNegativeInfinity:
+		v := apd.New(0, 0)
+		v.Form = apd.Infinite
+		v.Negative = true
+		return v
+	case dfloatNaN:
+		v := apd.New(0, 0)
+		v.Form = apd.NaN
+		return v
+	case dfloatSignalingNaN:
+		v := apd.New(0, 0)
+		v.Form = apd.NaNSignaling
+		return v
+	}
+	return apd.New(this.Coefficient, this.Exponent)
+}
+
+func (this DFloat) minimized() (d DFloat) {
+	d = this
+
+	if d.Exponent == ExpSpecial {
+		return
+	}
+
+	if d.Coefficient == 0 {
+		d.Exponent = 0
+		return
+	}
+
+	for {
+		coeff := d.Coefficient / 10
+		if coeff*10 != d.Coefficient {
+			break
+		}
+		d.Coefficient = coeff
+		d.Exponent++
+	}
+
+	return
+}
+
+var exponentMultipliers = []uint64{
+	1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000,
+	1000000000, 10000000000, 100000000000, 1000000000000, 10000000000000,
+	100000000000000, 1000000000000000, 10000000000000000, 100000000000000000,
+	1000000000000000000,  // Max for int64
+	10000000000000000000, // Max for uint64
 }
 
 var digitsMax = []uint64{
@@ -503,10 +569,11 @@ func decodeFromString(value string, significantDigits int) (result DFloat, err e
 		}, nil
 	}
 
-	return DFloat{
+	result = DFloat{
 		Coefficient: int64(significand) * significandSign,
 		Exponent:    int32(exponent),
-	}, nil
+	}.minimized()
+	return
 }
 
 const quietBit = 1 << 50
