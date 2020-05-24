@@ -61,19 +61,19 @@ func DFloatValue(exponent int32, coefficient int64) DFloat {
 // If significantDigits is less than 1, no rounding takes place.
 func DFloatFromFloat64(value float64, significantDigits int) DFloat {
 	if math.Float64bits(value) == math.Float64bits(0) {
-		return dfloatZero.Clone()
+		return dfloatZero
 	} else if value == math.Copysign(0, -1) {
-		return dfloatNegativeZero.Clone()
+		return dfloatNegativeZero
 	} else if math.IsInf(value, 1) {
-		return dfloatInfinity.Clone()
+		return dfloatInfinity
 	} else if math.IsInf(value, -1) {
-		return dfloatNegativeInfinity.Clone()
+		return dfloatNegativeInfinity
 	} else if math.IsNaN(value) {
 		bits := math.Float64bits(value)
 		if bits&quietBit != 0 {
-			return dfloatNaN.Clone()
+			return dfloatNaN
 		}
-		return dfloatSignalingNaN.Clone()
+		return dfloatSignalingNaN
 	}
 
 	asString := strconv.FormatFloat(value, 'g', -1, 64)
@@ -129,20 +129,20 @@ func DFloatFromBigInt(value *big.Int) DFloat {
 func DFloatFromAPD(value *apd.Decimal) DFloat {
 	if value.IsZero() {
 		if value.Negative {
-			return dfloatNegativeZero.Clone()
+			return dfloatNegativeZero
 		}
-		return dfloatZero.Clone()
+		return dfloatZero
 	}
 	switch value.Form {
 	case apd.Infinite:
 		if value.Negative {
-			return dfloatNegativeInfinity.Clone()
+			return dfloatNegativeInfinity
 		}
-		return dfloatInfinity.Clone()
+		return dfloatInfinity
 	case apd.NaN:
-		return dfloatNaN.Clone()
+		return dfloatNaN
 	case apd.NaNSignaling:
-		return dfloatSignalingNaN.Clone()
+		return dfloatSignalingNaN
 	}
 
 	if value.Coeff.IsInt64() {
@@ -171,31 +171,27 @@ func DFloatFromString(str string) (DFloat, error) {
 }
 
 func Zero() DFloat {
-	return dfloatZero.Clone()
+	return dfloatZero
 }
 
 func NegativeZero() DFloat {
-	return dfloatNegativeZero.Clone()
+	return dfloatNegativeZero
 }
 
 func Infinity() DFloat {
-	return dfloatInfinity.Clone()
+	return dfloatInfinity
 }
 
 func NegativeInfinity() DFloat {
-	return dfloatNegativeInfinity.Clone()
+	return dfloatNegativeInfinity
 }
 
 func QuietNaN() DFloat {
-	return dfloatNaN.Clone()
+	return dfloatNaN
 }
 
 func SignalingNaN() DFloat {
-	return dfloatSignalingNaN.Clone()
-}
-
-func (this DFloat) Clone() DFloat {
-	return DFloatValue(this.Exponent, this.Coefficient)
+	return dfloatSignalingNaN
 }
 
 func (this DFloat) IsSpecial() bool {
@@ -428,9 +424,9 @@ func decodeFromString(value string, significantDigits int) (result DFloat, err e
 		switch value {
 		case "inf", "infinity":
 			if significandSign < 0 {
-				result = dfloatNegativeInfinity.Clone()
+				result = dfloatNegativeInfinity
 			} else {
-				result = dfloatInfinity.Clone()
+				result = dfloatInfinity
 			}
 			return
 		case "nan":
@@ -438,14 +434,14 @@ func decodeFromString(value string, significantDigits int) (result DFloat, err e
 				err = fmt.Errorf("NaN cannot be negative")
 				return
 			}
-			result = dfloatNaN.Clone()
+			result = dfloatNaN
 			return
 		case "snan":
 			if significandSign < 0 {
 				err = fmt.Errorf("NaN cannot be negative")
 				return
 			}
-			result = dfloatSignalingNaN.Clone()
+			result = dfloatSignalingNaN
 			return
 		default:
 			err = fmt.Errorf("%v: Not a floating point value", value)

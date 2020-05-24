@@ -46,20 +46,30 @@ func testAPD(t *testing.T, sourceValue *apd.Decimal, expectedEncoded []byte) {
 		t.Errorf("Value %v: Expected encoded %v but got %v", sourceValue, describe.D(expectedEncoded), describe.D(actualEncoded))
 		return
 	}
-	value, bigValue, bytesDecoded, err := Decode(expectedEncoded)
-	if err != nil {
-		t.Errorf("Value %v: %v", sourceValue, err)
-		return
-	}
-	if bytesDecoded != len(actualEncoded) {
-		t.Errorf("Value %v: Expected to decode %v bytes but decoded %v", sourceValue, len(expectedEncoded), bytesDecoded)
-		return
-	}
-	if bigValue != nil {
-		if bigValue.Cmp(sourceValue) != 0 {
-			t.Errorf("Expected decoded big %v but got %v", sourceValue, bigValue)
+	var value DFloat
+	var bigValue *apd.Decimal
+	var bytesDecoded int
+	var err error
+	for i := 0; i < 2; i++ {
+		oversizeEncoded := expectedEncoded
+		for j := 0; j < i; j++ {
+			oversizeEncoded = append(oversizeEncoded, 0)
 		}
-		return
+		value, bigValue, bytesDecoded, err = Decode(oversizeEncoded)
+		if err != nil {
+			t.Errorf("Value %v: %v", sourceValue, err)
+			return
+		}
+		if bytesDecoded != len(actualEncoded) {
+			t.Errorf("Value %v: Expected to decode %v bytes but decoded %v", sourceValue, len(expectedEncoded), bytesDecoded)
+			return
+		}
+		if bigValue != nil {
+			if bigValue.Cmp(sourceValue) != 0 {
+				t.Errorf("Expected decoded big %v but got %v", sourceValue, bigValue)
+			}
+			return
+		}
 	}
 
 	expectedValue := DFloatFromAPD(sourceValue)

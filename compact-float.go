@@ -163,47 +163,42 @@ func EncodeNegativeZero(dst []byte) (bytesEncoded int, ok bool) {
 // Decode a float.
 // bigValue will be nil unless the decoded value is too big to fit into a DFloat.
 func Decode(src []byte) (value DFloat, bigValue *apd.Decimal, bytesDecoded int, err error) {
-	switch len(src) {
-	case 0:
+	if len(src) == 0 {
 		err = ErrorIncomplete
 		return
-	case 1:
-		switch src[0] {
-		case 2:
-			value = dfloatZero.Clone()
-			bytesDecoded = 1
-			return
-		case 3:
-			value = dfloatNegativeZero.Clone()
-			bytesDecoded = 1
-			return
-		default:
-			err = ErrorIncomplete
-			return
-		}
+	}
+
+	switch src[0] {
 	case 2:
-		if src[1] != 0 {
-			break
+		value = dfloatZero
+		bytesDecoded = 1
+		return
+	case 3:
+		value = dfloatNegativeZero
+		bytesDecoded = 1
+		return
+	case 0x80:
+		if len(src) > 1 && src[1] == 0 {
+			value = dfloatNaN
+			bytesDecoded = 2
+			return
 		}
-		switch src[0] {
-		case 0x80:
-			value = dfloatNaN.Clone()
+	case 0x81:
+		if len(src) > 1 && src[1] == 0 {
+			value = dfloatSignalingNaN
 			bytesDecoded = 2
 			return
-		case 0x81:
-			value = dfloatSignalingNaN.Clone()
+		}
+	case 0x82:
+		if len(src) > 1 && src[1] == 0 {
+			value = dfloatInfinity
 			bytesDecoded = 2
 			return
-		case 0x82:
-			value = dfloatInfinity.Clone()
+		}
+	case 0x83:
+		if len(src) > 1 && src[1] == 0 {
+			value = dfloatNegativeInfinity
 			bytesDecoded = 2
-			return
-		case 0x83:
-			value = dfloatNegativeInfinity.Clone()
-			bytesDecoded = 2
-			return
-		default:
-			err = ErrorIncomplete
 			return
 		}
 	}
