@@ -30,6 +30,9 @@ import (
 	"github.com/cockroachdb/apd/v2"
 )
 
+// An exponent value of ExpSpecial indicates that this is a special value.
+// The coefficient will be a special code that determines what special value
+// is represented (CoeffInfinity, CoeffNan, etc).
 const ExpSpecial = int32(-0x80000000)
 const (
 	CoeffNegativeZero     = 0
@@ -41,8 +44,9 @@ const (
 
 // DFloat represents a decimal floating point value in 96 bits.
 // It supports coefficient values within the range of int64, and exponent
-// values from -0x7fffffff to 0x7fffffff. The exponent -0x80000000 is used to
-// indicate special values, and is not allowed as an actual exponent value.
+// values from -0x7fffffff to 0x7fffffff. The exponent -0x80000000 (ExpSpecial)
+// is used to indicate special values, and is not allowed as an actual exponent
+// value.
 type DFloat struct {
 	Exponent    int32
 	Coefficient int64
@@ -88,9 +92,7 @@ func DFloatFromFloat64(value float64, significantDigits int) DFloat {
 // significant digit will be rounded (half-to-even).
 func DFloatFromUInt(value uint64) DFloat {
 	if value <= 0x7fffffffffffffff {
-		return DFloat{
-			Coefficient: int64(value),
-		}
+		return DFloatValue(0, int64(value))
 	}
 
 	remainder := value % 10
@@ -104,10 +106,7 @@ func DFloatFromUInt(value uint64) DFloat {
 			value++
 		}
 	}
-	return DFloat{
-		Exponent:    1,
-		Coefficient: int64(value),
-	}
+	return DFloatValue(1, int64(value))
 }
 
 // Convert a big.Int to DFloat. If the value is too big to fit, its lower
@@ -392,7 +391,7 @@ var digitsMax = []uint64{
 
 func decodeFromString(value string, significantDigits int) (result DFloat, err error) {
 	if len(value) < 1 {
-		return DFloat{}, nil
+		return dfloatZero, nil
 	}
 
 	const significandCap = uint64(0x7fffffffffffffff)
@@ -548,7 +547,7 @@ func decodeFromString(value string, significantDigits int) (result DFloat, err e
 	}
 
 	if err := decodeSignificand(value); err != nil {
-		return DFloat{}, err
+		return dfloatZero, err
 	}
 
 	if rounded > 5 || (rounded == 5 && significand&1 == 1) {
@@ -559,10 +558,7 @@ func decodeFromString(value string, significantDigits int) (result DFloat, err e
 	exponent -= int64(fractionalDigitCount)
 
 	if significand == 0 && significandSign < 0 {
-		return DFloat{
-			Coefficient: CoeffNegativeZero,
-			Exponent:    ExpSpecial,
-		}, nil
+		return dfloatNegativeZero, nil
 	}
 
 	result = DFloat{
