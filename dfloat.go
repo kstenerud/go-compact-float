@@ -123,6 +123,27 @@ func DFloatFromBigInt(value *big.Int) DFloat {
 	return DFloatFromAPD(apd.NewWithBigInt(value, 0))
 }
 
+var bitsToDigits = []int{0, 1, 1, 1, 1, 2, 2, 2, 3, 3}
+
+func DFloatFromBigFloat(value *big.Float) DFloat {
+	// Note: big.Float has no NaN representation
+	if value.IsInf() {
+		if value.Sign() < 0 {
+			return dfloatNegativeInfinity
+		}
+		return dfloatInfinity
+	}
+
+	precisionBits := int(value.Prec())
+	digits := (precisionBits/10)*3 + bitsToDigits[precisionBits%10]
+	str := value.Text('g', digits)
+	d, err := DFloatFromString(str)
+	if err != nil {
+		panic(fmt.Errorf("BUG: Could not parse \"%v\" from big.Float value", str))
+	}
+	return d
+}
+
 // Convert an apd.Decimal to DFloat. If the value is too big to fit, its lower
 // significant digits will be rounded (half-to-even).
 func DFloatFromAPD(value *apd.Decimal) DFloat {
@@ -319,6 +340,33 @@ func (this DFloat) Float() float64 {
 		panic(fmt.Errorf("BUG: error decoding stringified DFloat %v: %v", this, err))
 	}
 	return result
+}
+
+func (this DFloat) BigFloat() *big.Float {
+	switch this {
+	case dfloatZero:
+		return big.NewFloat(0.0)
+	case dfloatNegativeZero:
+		// Go doesn't handle literal -0.0 by design
+		v := 0.0
+		v = -v
+		return big.NewFloat(v)
+	case dfloatInfinity:
+		return big.NewFloat(math.Inf(1))
+	case dfloatNegativeInfinity:
+		return big.NewFloat(math.Inf(-1))
+	case dfloatNaN:
+		return big.NewFloat(math.Float64frombits(math.Float64bits(math.NaN()) | uint64(quietBit)))
+	case dfloatSignalingNaN:
+		return big.NewFloat(math.Float64frombits(math.Float64bits(math.NaN()) & ^uint64(quietBit)))
+	}
+
+	str := this.String()
+	f, _, err := big.ParseFloat(str, 10, 63, big.ToNearestEven)
+	if err != nil {
+		panic(fmt.Errorf("BUG: error decoding stringified DFloat %v: %v", this, err))
+	}
+	return f
 }
 
 // Returns the apd.Decimal representation of this value. All DFloat values can
@@ -565,6 +613,7 @@ func decodeFromString(value string, significantDigits int) (result DFloat, err e
 		Coefficient: int64(significand) * significandSign,
 		Exponent:    int32(exponent),
 	}.minimized()
+
 	return
 }
 

@@ -295,6 +295,13 @@ func TestConvertFromBigInt(t *testing.T) {
 	assertConvertToString(t, DFloatFromBigInt(new(big.Int).Exp(big.NewInt(1000), big.NewInt(1000), nil)), "1e+3000")
 }
 
+func TestConvertFromBigFloat(t *testing.T) {
+	v := big.NewFloat(123456789012345)
+	v.SetPrec(100) // 30 digits = 10 sets of 3 at 10 bits per set of 3
+	v = v.Add(v, big.NewFloat(0.678901234567890))
+	assertConvertToString(t, DFloatFromBigFloat(v), "123456789012345.6789")
+}
+
 func TestConvertFromBigDecimalFloat(t *testing.T) {
 	bdf, _, err := apd.NewFromString("1.49634e+100")
 	if err != nil {
@@ -323,13 +330,29 @@ func TestConvertToFloat(t *testing.T) {
 	assertConvertToFloat(t, DFloatValue(97, 5053), 5.053e+100)
 }
 
+func TestConvertToBigFloat(t *testing.T) {
+	str := "123456789012345.6789"
+	expected, _, err := big.ParseFloat(str, 10, 63, big.ToNearestEven)
+	if err != nil {
+		panic(err)
+	}
+	df, err := DFloatFromString(str)
+	if err != nil {
+		panic(err)
+	}
+	actual := df.BigFloat()
+	if actual.Cmp(expected) != 0 {
+		t.Errorf("Expected %v but got %v", expected, actual)
+	}
+}
+
 func TestConvertToBigInt(t *testing.T) {
 	assertConvertToBigInt(t, DFloatValue(1, 1234), big.NewInt(12340))
 	assertConvertToBigIntFails(t, DFloatValue(-1, 1))
 	assertConvertToBigInt(t, DFloatValue(100, 1), new(big.Int).Exp(big.NewInt(10), big.NewInt(100), nil))
 }
 
-func TestConvertToBigFloat(t *testing.T) {
+func TestConvertToBigDecimalFloat(t *testing.T) {
 	assertConvertToBigFloat(t, DFloatValue(1, 1), apd.NewWithBigInt(big.NewInt(10), 0))
 	assertConvertToBigFloat(t, DFloatValue(100, 105833), apd.NewWithBigInt(big.NewInt(105833), 100))
 }
