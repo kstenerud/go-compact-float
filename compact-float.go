@@ -22,6 +22,7 @@ package compact_float
 
 import (
 	"fmt"
+	"io"
 	"math/big"
 
 	"github.com/cockroachdb/apd/v2"
@@ -30,13 +31,13 @@ import (
 
 var ErrorIncomplete = fmt.Errorf("Compact float value is incomplete")
 
-// Maximum number of bytes a DFloat (or float64) can occupy while encoded
+// Maximum number of bytes required to encode a DFloat.
 func MaxEncodeLength() int {
 	// (64 bits / 7) + (33 bits / 7)
 	return 10 + 5
 }
 
-// Maximum number of bytes a particular apd.Decimal can occupy while encoded.
+// Maximum number of bytes required to encode a particular apd.Decimal.
 // This is an estimate; it may be smaller, but never bigger.
 func MaxEncodeLengthBig(value *apd.Decimal) int {
 	if is32Bit() {
@@ -45,23 +46,32 @@ func MaxEncodeLengthBig(value *apd.Decimal) int {
 	return len(value.Coeff.Bits())*64/7 + 1 + 5
 }
 
-func Encode(value DFloat, dst []byte) (bytesEncoded int, ok bool) {
+// Encodes a DFloat to a writer.
+func Encode(value DFloat, writer io.Writer) (bytesEncoded int, err error) {
+	buffer := make([]byte, MaxEncodeLength())
+	bytesEncoded = EncodeToBytes(value, buffer)
+	return writer.Write(buffer[:bytesEncoded])
+}
+
+// Encodes a DFloat to a byte buffer.
+// Assumes the buffer is big enough (see MaxEncodeLength()).
+func EncodeToBytes(value DFloat, buffer []byte) (bytesEncoded int) {
 	if value.IsZero() {
 		if value.IsNegativeZero() {
-			return EncodeNegativeZero(dst)
+			return EncodeNegativeZero(buffer)
 		}
-		return EncodeZero(dst)
+		return EncodeZero(buffer)
 	}
 	if value.IsSpecial() {
 		switch value.Coefficient {
 		case CoeffInfinity:
-			return EncodeInfinity(dst)
+			return EncodeInfinity(buffer)
 		case CoeffNegativeInfinity:
-			return EncodeNegativeInfinity(dst)
+			return EncodeNegativeInfinity(buffer)
 		case CoeffNan:
-			return EncodeQuietNan(dst)
+			return EncodeQuietNan(buffer)
 		case CoeffSignalingNan:
-			return EncodeSignalingNan(dst)
+			return EncodeSignalingNan(buffer)
 		default:
 			panic(fmt.Errorf("%v: Illegal special coefficient", value.Coefficient))
 		}
@@ -80,36 +90,37 @@ func Encode(value DFloat, dst []byte) (bytesEncoded int, ok bool) {
 		coefficientSign = 1
 	}
 	exponentField := uint64(exponent)<<2 | uint64(exponentSign) | uint64(coefficientSign)
-	bytesEncoded, ok = uleb128.EncodeUint64(exponentField, dst)
-	if !ok {
-		return
-	}
-	offset := bytesEncoded
-	bytesEncoded, ok = uleb128.EncodeUint64(uint64(coefficient), dst[offset:])
-	if !ok {
-		return
-	}
-	bytesEncoded += offset
+	bytesEncoded = uleb128.EncodeUint64ToBytes(exponentField, buffer)
+	bytesEncoded += uleb128.EncodeUint64ToBytes(uint64(coefficient), buffer[bytesEncoded:])
 	return
 }
 
-func EncodeBig(value *apd.Decimal, dst []byte) (bytesEncoded int, ok bool) {
+// Encodes an apd.Decimal to a writer.
+func EncodeBig(value *apd.Decimal, writer io.Writer) (bytesEncoded int, err error) {
+	buffer := make([]byte, MaxEncodeLengthBig(value))
+	bytesEncoded = EncodeBigToBytes(value, buffer)
+	return writer.Write(buffer[:bytesEncoded])
+}
+
+// Encodes an apt.Decimal to a buffer.
+// Assumes the buffer is big enough (see MaxEncodeLengthBig()).
+func EncodeBigToBytes(value *apd.Decimal, buffer []byte) (bytesEncoded int) {
 	if value.IsZero() {
 		if value.Negative {
-			return EncodeNegativeZero(dst)
+			return EncodeNegativeZero(buffer)
 		}
-		return EncodeZero(dst)
+		return EncodeZero(buffer)
 	}
 	switch value.Form {
 	case apd.Infinite:
 		if value.Negative {
-			return EncodeNegativeInfinity(dst)
+			return EncodeNegativeInfinity(buffer)
 		}
-		return EncodeInfinity(dst)
+		return EncodeInfinity(buffer)
 	case apd.NaN:
-		return EncodeQuietNan(dst)
+		return EncodeQuietNan(buffer)
 	case apd.NaNSignaling:
-		return EncodeSignalingNan(dst)
+		return EncodeSignalingNan(buffer)
 	}
 
 	exponent := value.Exponent
@@ -123,96 +134,87 @@ func EncodeBig(value *apd.Decimal, dst []byte) (bytesEncoded int, ok bool) {
 		significandSign = 1
 	}
 	exponentField := uint64(exponent)<<2 | uint64(exponentSign)<<1 | uint64(significandSign)
-	bytesEncoded, ok = uleb128.EncodeUint64(exponentField, dst)
-	if !ok {
-		return
-	}
-	offset := bytesEncoded
-	bytesEncoded, ok = uleb128.Encode(&value.Coeff, dst[offset:])
-	if !ok {
-		return
-	}
-	bytesEncoded += offset
+	bytesEncoded = uleb128.EncodeUint64ToBytes(exponentField, buffer)
+	bytesEncoded += uleb128.EncodeToBytes(&value.Coeff, buffer[bytesEncoded:])
 	return
 }
 
-func EncodeQuietNan(dst []byte) (bytesEncoded int, ok bool) {
-	return encodeExtendedSpecialValue(dst, 0)
+// Encodes a quiet NaN, using 2 bytes.
+func EncodeQuietNan(buffer []byte) (bytesEncoded int) {
+	return encodeExtendedSpecialValue(0, buffer)
 }
 
-func EncodeSignalingNan(dst []byte) (bytesEncoded int, ok bool) {
-	return encodeExtendedSpecialValue(dst, 1)
+// Encodes a signaling NaN, using 2 bytes.
+func EncodeSignalingNan(buffer []byte) (bytesEncoded int) {
+	return encodeExtendedSpecialValue(1, buffer)
 }
 
-func EncodeInfinity(dst []byte) (bytesEncoded int, ok bool) {
-	return encodeExtendedSpecialValue(dst, 2)
+// Encodes positive infinity, using 2 bytes.
+func EncodeInfinity(buffer []byte) (bytesEncoded int) {
+	return encodeExtendedSpecialValue(2, buffer)
 }
 
-func EncodeNegativeInfinity(dst []byte) (bytesEncoded int, ok bool) {
-	return encodeExtendedSpecialValue(dst, 3)
+// Encodes negative infinity, using 2 bytes.
+func EncodeNegativeInfinity(buffer []byte) (bytesEncoded int) {
+	return encodeExtendedSpecialValue(3, buffer)
 }
 
-func EncodeZero(dst []byte) (bytesEncoded int, ok bool) {
-	return encodeSpecialValue(dst, 2)
+// Encodes positive zero, using 1 byte.
+func EncodeZero(buffer []byte) (bytesEncoded int) {
+	return encodeSpecialValue(2, buffer)
 }
 
-func EncodeNegativeZero(dst []byte) (bytesEncoded int, ok bool) {
-	return encodeSpecialValue(dst, 3)
+// Encodes negative zero, using 1 byte.
+func EncodeNegativeZero(buffer []byte) (bytesEncoded int) {
+	return encodeSpecialValue(3, buffer)
 }
 
 // Decode a float.
 // bigValue will be nil unless the decoded value is too big to fit into a DFloat.
-func Decode(src []byte) (value DFloat, bigValue *apd.Decimal, bytesDecoded int, err error) {
-	if len(src) == 0 {
-		err = ErrorIncomplete
-		return
-	}
+func Decode(reader io.Reader) (value DFloat, bigValue *apd.Decimal, bytesDecoded int, err error) {
+	buffer := []byte{0}
+	return DecodeWithByteBuffer(reader, buffer)
+}
 
-	switch src[0] {
-	case 2:
-		value = dfloatZero
-		bytesDecoded = 1
-		return
-	case 3:
-		value = dfloatNegativeZero
-		bytesDecoded = 1
-		return
-	case 0x80:
-		if len(src) > 1 && src[1] == 0 {
-			value = dfloatNaN
-			bytesDecoded = 2
-			return
-		}
-	case 0x81:
-		if len(src) > 1 && src[1] == 0 {
-			value = dfloatSignalingNaN
-			bytesDecoded = 2
-			return
-		}
-	case 0x82:
-		if len(src) > 1 && src[1] == 0 {
-			value = dfloatInfinity
-			bytesDecoded = 2
-			return
-		}
-	case 0x83:
-		if len(src) > 1 && src[1] == 0 {
-			value = dfloatNegativeInfinity
-			bytesDecoded = 2
-			return
-		}
-	}
-
-	asUint, asBig, bytesDecoded, ok := uleb128.Decode(0, 0, src)
-	if !ok {
-		err = ErrorIncomplete
+// Decode a float using the supplied single-byte buffer.
+// bigValue will be nil unless the decoded value is too big to fit into a DFloat.
+func DecodeWithByteBuffer(reader io.Reader, buffer []byte) (value DFloat, bigValue *apd.Decimal, bytesDecoded int, err error) {
+	asUint, asBig, bytesDecoded, err := uleb128.DecodeWithByteBuffer(reader, buffer)
+	if err != nil {
 		return
 	}
-	ok = false
 	if asBig != nil {
 		err = fmt.Errorf("Exponent %v is too big", asBig)
 		return
 	}
+
+	switch bytesDecoded {
+	case 1:
+		switch asUint {
+		case 2:
+			value = dfloatZero
+			return
+		case 3:
+			value = dfloatNegativeZero
+			return
+		}
+	case 2:
+		switch asUint {
+		case 0:
+			value = dfloatNaN
+			return
+		case 1:
+			value = dfloatSignalingNaN
+			return
+		case 2:
+			value = dfloatInfinity
+			return
+		case 3:
+			value = dfloatNegativeInfinity
+			return
+		}
+	}
+
 	maxEncodedExponent := uint64(0x1ffffffff)
 	if asUint > maxEncodedExponent {
 		err = fmt.Errorf("Exponent %v is too big", asUint)
@@ -226,12 +228,9 @@ func Decode(src []byte) (value DFloat, bigValue *apd.Decimal, bytesDecoded int, 
 	exponent := int32(asUint>>2) * expMult
 
 	offset := bytesDecoded
-	asUint, asBig, bytesDecoded, ok = uleb128.Decode(0, 0, src[offset:])
-	if !ok {
-		err = ErrorIncomplete
+	if asUint, asBig, bytesDecoded, err = uleb128.DecodeWithByteBuffer(reader, buffer); err != nil {
 		return
 	}
-	ok = false
 	bytesDecoded += offset
 
 	if asBig != nil {
@@ -265,21 +264,15 @@ func Decode(src []byte) (value DFloat, bigValue *apd.Decimal, bytesDecoded int, 
 	return
 }
 
-func encodeSpecialValue(dst []byte, value byte) (bytesEncoded int, ok bool) {
-	if len(dst) < 1 {
-		return 1, false
-	}
-	dst[0] = value
-	return 1, true
+func encodeSpecialValue(value byte, buffer []byte) (bytesEncoded int) {
+	buffer[0] = value
+	return 1
 }
 
-func encodeExtendedSpecialValue(dst []byte, value byte) (bytesEncoded int, ok bool) {
-	if len(dst) < 2 {
-		return 2, false
-	}
-	dst[0] = 0x80 | value
-	dst[1] = 0
-	return 2, true
+func encodeExtendedSpecialValue(value byte, buffer []byte) (bytesEncoded int) {
+	buffer[0] = value | 0x80
+	buffer[1] = 0
+	return 2
 }
 
 func is32Bit() bool {

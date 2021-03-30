@@ -31,36 +31,34 @@ import (
 )
 
 func testAPD(t *testing.T, sourceValue *apd.Decimal, expectedEncoded []byte) {
-	actualEncoded := make([]byte, MaxEncodeLengthBig(sourceValue))
-	bytesEncoded, ok := EncodeBig(sourceValue, actualEncoded)
-	if !ok {
-		t.Errorf("Value %v: could not encode into %v bytes", sourceValue, len(actualEncoded))
+	actualEncoded := &bytes.Buffer{}
+	bytesEncoded, err := EncodeBig(sourceValue, actualEncoded)
+	if err != nil {
+		t.Errorf("Value %v: Error encoding: %v", sourceValue, err)
 		return
 	}
 	if bytesEncoded != len(expectedEncoded) {
 		t.Errorf("Value %v: Expected to encode %v bytes but encoded %v", sourceValue, len(expectedEncoded), bytesEncoded)
 		return
 	}
-	actualEncoded = actualEncoded[:bytesEncoded]
-	if !bytes.Equal(expectedEncoded, actualEncoded) {
-		t.Errorf("Value %v: Expected encoded %v but got %v", sourceValue, describe.D(expectedEncoded), describe.D(actualEncoded))
+	if !bytes.Equal(expectedEncoded, actualEncoded.Bytes()) {
+		t.Errorf("Value %v: Expected encoded %v but got %v", sourceValue, describe.D(expectedEncoded), describe.D(actualEncoded.Bytes()))
 		return
 	}
 	var value DFloat
 	var bigValue *apd.Decimal
 	var bytesDecoded int
-	var err error
 	for i := 0; i < 2; i++ {
-		oversizeEncoded := expectedEncoded
+		oversizeEncoded := bytes.NewBuffer(expectedEncoded)
 		for j := 0; j < i; j++ {
-			oversizeEncoded = append(oversizeEncoded, 0)
+			oversizeEncoded.WriteByte(0)
 		}
 		value, bigValue, bytesDecoded, err = Decode(oversizeEncoded)
 		if err != nil {
 			t.Errorf("Value %v: %v", sourceValue, err)
 			return
 		}
-		if bytesDecoded != len(actualEncoded) {
+		if bytesDecoded != len(expectedEncoded) {
 			t.Errorf("Value %v: Expected to decode %v bytes but decoded %v", sourceValue, len(expectedEncoded), bytesDecoded)
 			return
 		}
@@ -80,27 +78,26 @@ func testAPD(t *testing.T, sourceValue *apd.Decimal, expectedEncoded []byte) {
 }
 
 func testDecimal(t *testing.T, expectedValue DFloat, expectedEncoded []byte) DFloat {
-	actualEncoded := make([]byte, MaxEncodeLength())
-	bytesEncoded, ok := Encode(expectedValue, actualEncoded)
-	if !ok {
-		t.Errorf("Value %v: could not encode into %v bytes", expectedValue, len(actualEncoded))
+	actualEncoded := &bytes.Buffer{}
+	bytesEncoded, err := Encode(expectedValue, actualEncoded)
+	if err != nil {
+		t.Errorf("Value %v: Error encoding: %v", expectedValue, err)
 		return dfloatZero
 	}
 	if bytesEncoded != len(expectedEncoded) {
 		t.Errorf("Value %v: Expected to encode %v bytes but encoded %v", expectedValue, len(expectedEncoded), bytesEncoded)
 		return dfloatZero
 	}
-	actualEncoded = actualEncoded[:bytesEncoded]
-	if !bytes.Equal(expectedEncoded, actualEncoded) {
-		t.Errorf("Value %v: Expected encoded %v but got %v", expectedValue, describe.D(expectedEncoded), describe.D(actualEncoded))
+	if !bytes.Equal(expectedEncoded, actualEncoded.Bytes()) {
+		t.Errorf("Value %v: Expected encoded %v but got %v", expectedValue, describe.D(expectedEncoded), describe.D(actualEncoded.Bytes()))
 		return dfloatZero
 	}
-	actualValue, _, bytesDecoded, err := Decode(expectedEncoded)
+	actualValue, _, bytesDecoded, err := Decode(bytes.NewBuffer(expectedEncoded))
 	if err != nil {
 		t.Errorf("Value %v: %v", expectedValue, err)
 		return dfloatZero
 	}
-	if bytesDecoded != len(actualEncoded) {
+	if bytesDecoded != len(expectedEncoded) {
 		t.Errorf("Value %v: Expected to decode %v bytes but decoded %v", expectedValue, len(expectedEncoded), bytesDecoded)
 		return dfloatZero
 	}
@@ -158,31 +155,6 @@ func assertFloat64(t *testing.T, sourceValue float64, significantDigits int, exp
 		t.Errorf("Value %v, digits %v: Expected string value %v but got %v", sourceValue, significantDigits, expectedString, actualString)
 		return
 	}
-}
-
-func assertSpecialValue(t *testing.T, expectedByteCount int,
-	f func(dst []byte) (bytesEncoded int, ok bool),
-	tst func(DFloat)) {
-	actualEncoded := make([]byte, expectedByteCount, expectedByteCount)
-	bytesEncoded, ok := f(actualEncoded)
-	if !ok {
-		t.Errorf("Could not encode into %v bytes", len(actualEncoded))
-		return
-	}
-	if bytesEncoded != expectedByteCount {
-		t.Errorf("Expected to encode into %v bytes but used %v", expectedByteCount, bytesEncoded)
-		return
-	}
-	decimalValue, _, bytesDecoded, err := Decode(actualEncoded)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	if bytesDecoded != expectedByteCount {
-		t.Errorf("Expected to decode %v bytes but decoded %v", expectedByteCount, bytesDecoded)
-		return
-	}
-	tst(decimalValue)
 }
 
 // ============================================================================
