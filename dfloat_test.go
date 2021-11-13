@@ -47,6 +47,18 @@ func assertConvertToString(t *testing.T, value DFloat, expected string) {
 	}
 }
 
+func assertConvertFromString(t *testing.T, str string, expected string, expectedErr error) {
+	value, err := DFloatFromString(str)
+	if err != expectedErr {
+		t.Errorf("Expected conversion of string %v to cause error %v but got %v (produced value %v)", str, expectedErr, err, value)
+		return
+	}
+	actual := fmt.Sprint(value)
+	if actual != expected {
+		t.Errorf("Expected %v but got %v", expected, actual)
+	}
+}
+
 func assertConvertToUint(t *testing.T, value DFloat, expected uint64) {
 	actual, err := value.Uint()
 	if err != nil {
@@ -113,6 +125,54 @@ func assertConvertToBigFloat(t *testing.T, value DFloat, expected *apd.Decimal) 
 	if actual.Cmp(expected) != 0 {
 		t.Errorf("Expected %v but got %v", expected, actual)
 	}
+}
+
+func assertDFloatFromString(t *testing.T, value string, expectedErr error) DFloat {
+	result, err := DFloatFromString(value)
+	if err != expectedErr {
+		t.Errorf("Expected conversion of %v to produce error %v but got %v", value, expectedErr, err)
+	}
+	return result
+}
+
+func assertDFloatFromUint(t *testing.T, value uint64, expectedErr error) DFloat {
+	result, err := DFloatFromUInt(value)
+	if err != expectedErr {
+		t.Errorf("Expected conversion of %v to produce error %v but got %v", value, expectedErr, err)
+	}
+	return result
+}
+
+func assertDFloatFromBigInt(t *testing.T, value *big.Int, expectedErr error) DFloat {
+	result, err := DFloatFromBigInt(value)
+	if err != expectedErr {
+		t.Errorf("Expected conversion of %v to produce error %v but got %v", value, expectedErr, err)
+	}
+	return result
+}
+
+func assertDFloatFromFloat64(t *testing.T, value float64, sigDigits int, expectedErr error) DFloat {
+	result, err := DFloatFromFloat64(value, sigDigits)
+	if err != expectedErr {
+		t.Errorf("Expected conversion of %v with %v significant digits to produce error %v but got %v", value, sigDigits, expectedErr, err)
+	}
+	return result
+}
+
+func assertDFloatFromBigFloat(t *testing.T, value *big.Float, expectedErr error) DFloat {
+	result, err := DFloatFromBigFloat(value)
+	if err != expectedErr {
+		t.Errorf("Expected conversion of %v to produce error %v but got %v", value, expectedErr, err)
+	}
+	return result
+}
+
+func assertDFloatFromAPD(t *testing.T, value *apd.Decimal, expectedErr error) DFloat {
+	result, err := DFloatFromAPD(value)
+	if err != expectedErr {
+		t.Errorf("Expected conversion of %v to produce error %v but got %v", value, expectedErr, err)
+	}
+	return result
 }
 
 // ============================================================================
@@ -280,26 +340,26 @@ func TestConstructor(t *testing.T) {
 }
 
 func TestConvertFromUInt(t *testing.T) {
-	assertConvertToString(t, DFloatFromUInt(uint64(9223372036854775807)), "9223372036854775807")
-	assertConvertToString(t, DFloatFromUInt(uint64(9223372036854775808)), "9.22337203685477581e+18")
-	assertConvertToString(t, DFloatFromUInt(uint64(9223372036854775815)), "9.22337203685477582e+18")
-	assertConvertToString(t, DFloatFromUInt(uint64(9223372036854775825)), "9.22337203685477582e+18")
+	assertConvertToString(t, assertDFloatFromUint(t, uint64(9223372036854775807), nil), "9223372036854775807")
+	assertConvertToString(t, assertDFloatFromUint(t, uint64(9223372036854775808), RoundingError()), "9.22337203685477581e+18")
+	assertConvertToString(t, assertDFloatFromUint(t, uint64(9223372036854775815), RoundingError()), "9.22337203685477582e+18")
+	assertConvertToString(t, assertDFloatFromUint(t, uint64(9223372036854775825), RoundingError()), "9.22337203685477582e+18")
 }
 
 func TestConvertFromFloat(t *testing.T) {
-	assertConvertToString(t, DFloatFromFloat64(1.594365, 6), "1.59436")
-	assertConvertToString(t, DFloatFromFloat64(7.94812e+100, 3), "7.95e+100")
+	assertConvertToString(t, assertDFloatFromFloat64(t, 1.594365, 6, RoundingError()), "1.59436")
+	assertConvertToString(t, assertDFloatFromFloat64(t, 7.94812e+100, 3, RoundingError()), "7.95e+100")
 }
 
 func TestConvertFromBigInt(t *testing.T) {
-	assertConvertToString(t, DFloatFromBigInt(new(big.Int).Exp(big.NewInt(1000), big.NewInt(1000), nil)), "1e+3000")
+	assertConvertToString(t, assertDFloatFromBigInt(t, new(big.Int).Exp(big.NewInt(1000), big.NewInt(1000), nil), RoundingError()), "1e+3000")
 }
 
 func TestConvertFromBigFloat(t *testing.T) {
 	v := big.NewFloat(123456789012345)
 	v.SetPrec(100) // 30 digits = 10 sets of 3 at 10 bits per set of 3
 	v = v.Add(v, big.NewFloat(0.678901234567890))
-	assertConvertToString(t, DFloatFromBigFloat(v), "123456789012345.6789")
+	assertConvertToString(t, assertDFloatFromBigFloat(t, v, RoundingError()), "123456789012345.6789")
 }
 
 func TestConvertFromBigDecimalFloat(t *testing.T) {
@@ -307,7 +367,12 @@ func TestConvertFromBigDecimalFloat(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assertConvertToString(t, DFloatFromAPD(bdf), "1.49634e+100")
+	assertConvertToString(t, assertDFloatFromAPD(t, bdf, nil), "1.49634e+100")
+}
+
+func TestConvertFromString(t *testing.T) {
+	assertConvertFromString(t, "1e+3000", "1e+3000", nil)
+	assertConvertFromString(t, "1.23456789123456789123456789e+100", "1.234567891234567891e+100", RoundingError())
 }
 
 func TestConvertToUint(t *testing.T) {

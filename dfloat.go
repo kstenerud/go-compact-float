@@ -21,6 +21,7 @@
 package compact_float
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -61,38 +62,36 @@ func DFloatValue(exponent int32, coefficient int64) DFloat {
 
 // Convert an iee754 binary floating point value to DFloat, with the specified
 // number of significant digits. Rounding is half-to-even, meaning it rounds
-// towards an even number when exactly halfway.
+// towards an even number when exactly halfway. If rounding occurs, the returned
+// error will be RoundingError.
 // If significantDigits is less than 1, no rounding takes place.
-func DFloatFromFloat64(value float64, significantDigits int) DFloat {
+func DFloatFromFloat64(value float64, significantDigits int) (DFloat, error) {
 	if math.Float64bits(value) == math.Float64bits(0) {
-		return dfloatZero
+		return dfloatZero, nil
 	} else if value == math.Copysign(0, -1) {
-		return dfloatNegativeZero
+		return dfloatNegativeZero, nil
 	} else if math.IsInf(value, 1) {
-		return dfloatInfinity
+		return dfloatInfinity, nil
 	} else if math.IsInf(value, -1) {
-		return dfloatNegativeInfinity
+		return dfloatNegativeInfinity, nil
 	} else if math.IsNaN(value) {
 		bits := math.Float64bits(value)
 		if bits&quietBit != 0 {
-			return dfloatNaN
+			return dfloatNaN, nil
 		}
-		return dfloatSignalingNaN
+		return dfloatSignalingNaN, nil
 	}
 
 	asString := strconv.FormatFloat(value, 'g', -1, 64)
-	d, err := decodeFromString(asString, significantDigits)
-	if err != nil {
-		panic(fmt.Errorf("BUG: error decoding stringified float64 %g: %v", value, err))
-	}
-	return d
+	return decodeFromString(asString, significantDigits)
 }
 
 // Convert an unsigned int to DFloat. If the value is too big to fit, its lowest
-// significant digit will be rounded (half-to-even).
-func DFloatFromUInt(value uint64) DFloat {
+// significant digit will be rounded (half-to-even) and
+// RoundingError will be returned along with the rounded value.
+func DFloatFromUInt(value uint64) (DFloat, error) {
 	if value <= 0x7fffffffffffffff {
-		return DFloatValue(0, int64(value))
+		return DFloatValue(0, int64(value)), nil
 	}
 
 	remainder := value % 10
@@ -106,14 +105,15 @@ func DFloatFromUInt(value uint64) DFloat {
 			value++
 		}
 	}
-	return DFloatValue(1, int64(value))
+	return DFloatValue(1, int64(value)), roundingError
 }
 
 // Convert a big.Int to DFloat. If the value is too big to fit, its lower
-// significant digits will be rounded (half-to-even).
-func DFloatFromBigInt(value *big.Int) DFloat {
+// significant digits will be rounded (half-to-even) and
+// RoundingError will be returned along with the rounded value.
+func DFloatFromBigInt(value *big.Int) (DFloat, error) {
 	if value.IsInt64() {
-		return DFloatValue(0, value.Int64())
+		return DFloatValue(0, value.Int64()), nil
 	}
 
 	if value.IsUint64() {
@@ -125,44 +125,44 @@ func DFloatFromBigInt(value *big.Int) DFloat {
 
 var bitsToDigits = []int{0, 1, 1, 1, 1, 2, 2, 2, 3, 3}
 
-func DFloatFromBigFloat(value *big.Float) DFloat {
+// Convert a big.Float to DFloat. If the value is too big to fit, its lower
+// significant digits will be rounded (half-to-even) and
+// RoundingError will be returned along with the rounded value.
+func DFloatFromBigFloat(value *big.Float) (DFloat, error) {
 	// Note: big.Float has no NaN representation
 	if value.IsInf() {
 		if value.Sign() < 0 {
-			return dfloatNegativeInfinity
+			return dfloatNegativeInfinity, nil
 		}
-		return dfloatInfinity
+		return dfloatInfinity, nil
 	}
 
 	precisionBits := int(value.Prec())
 	digits := (precisionBits/10)*3 + bitsToDigits[precisionBits%10]
 	str := value.Text('g', digits)
-	d, err := DFloatFromString(str)
-	if err != nil {
-		panic(fmt.Errorf("BUG: Could not parse \"%v\" from big.Float value", str))
-	}
-	return d
+	return DFloatFromString(str)
 }
 
 // Convert an apd.Decimal to DFloat. If the value is too big to fit, its lower
-// significant digits will be rounded (half-to-even).
-func DFloatFromAPD(value *apd.Decimal) DFloat {
+// significant digits will be rounded (half-to-even) and
+// RoundingError will be returned along with the rounded value.
+func DFloatFromAPD(value *apd.Decimal) (DFloat, error) {
 	if value.IsZero() {
 		if value.Negative {
-			return dfloatNegativeZero
+			return dfloatNegativeZero, nil
 		}
-		return dfloatZero
+		return dfloatZero, nil
 	}
 	switch value.Form {
 	case apd.Infinite:
 		if value.Negative {
-			return dfloatNegativeInfinity
+			return dfloatNegativeInfinity, nil
 		}
-		return dfloatInfinity
+		return dfloatInfinity, nil
 	case apd.NaN:
-		return dfloatNaN
+		return dfloatNaN, nil
 	case apd.NaNSignaling:
-		return dfloatSignalingNaN
+		return dfloatSignalingNaN, nil
 	}
 
 	if value.Coeff.IsInt64() {
@@ -173,19 +173,16 @@ func DFloatFromAPD(value *apd.Decimal) DFloat {
 		if value.Negative {
 			d.Coefficient = -d.Coefficient
 		}
-		return d
+		return d, nil
 	}
 
 	str := value.Text('g')
-	d, err := DFloatFromString(str)
-	if err != nil {
-		panic(fmt.Errorf("BUG: Could not parse \"%v\" from apd float value", str))
-	}
-	return d
+	return DFloatFromString(str)
 }
 
 // Convert a string float representation to DFloat. If the value is too big to
-// fit, its lower significant digits will be rounded (half-to-even).
+// fit, its lower significant digits will be rounded (half-to-even) and
+// RoundingError will be returned along with the rounded value.
 func DFloatFromString(str string) (DFloat, error) {
 	return decodeFromString(str, 0)
 }
@@ -460,6 +457,7 @@ func decodeFromString(value string, significantDigits int) (result DFloat, err e
 	significandSign := int64(1)
 	rounded := 0
 	firstRounded := true
+	didRoundResult := false
 
 	if value[0] == '-' {
 		significandSign = -1
@@ -519,6 +517,7 @@ func decodeFromString(value string, significantDigits int) (result DFloat, err e
 	}
 
 	decodeRoundedFractional := func(str string) error {
+		didRoundResult = true
 		for i, ch := range str {
 			switch ch {
 			case 'e', 'E':
@@ -555,6 +554,7 @@ func decodeFromString(value string, significantDigits int) (result DFloat, err e
 	}
 
 	decodeRounded := func(str string) error {
+		didRoundResult = true
 		for i, ch := range str {
 			switch ch {
 			case '.':
@@ -614,7 +614,16 @@ func decodeFromString(value string, significantDigits int) (result DFloat, err e
 		Exponent:    int32(exponent),
 	}.minimized()
 
+	if didRoundResult {
+		err = roundingError
+	}
 	return
+}
+
+var roundingError = errors.New("RoundingError")
+
+func RoundingError() error {
+	return roundingError
 }
 
 const quietBit = 1 << 50

@@ -30,7 +30,7 @@ import (
 	"github.com/kstenerud/go-describe"
 )
 
-func testAPD(t *testing.T, sourceValue *apd.Decimal, expectedEncoded []byte) {
+func assertCodecAPD(t *testing.T, sourceValue *apd.Decimal, expectedEncoded []byte) {
 	actualEncoded := &bytes.Buffer{}
 	bytesEncoded, err := EncodeBig(sourceValue, actualEncoded)
 	if err != nil {
@@ -70,71 +70,74 @@ func testAPD(t *testing.T, sourceValue *apd.Decimal, expectedEncoded []byte) {
 		}
 	}
 
-	expectedValue := DFloatFromAPD(sourceValue)
+	expectedValue, err := DFloatFromAPD(sourceValue)
+	if err != nil {
+		t.Errorf("Unexpected error converting from apd.Decimal %v to dfloat: %v", sourceValue, err)
+		return
+	}
 	if value != expectedValue {
 		t.Errorf("Value %v: Expected decoded dfloat %v but got %v", sourceValue, expectedValue, value)
 		return
 	}
 }
 
-func testDecimal(t *testing.T, expectedValue DFloat, expectedEncoded []byte) DFloat {
+func assertCodecDecimal(t *testing.T, expectedValue DFloat, expectedEncoded []byte) {
 	actualEncoded := &bytes.Buffer{}
 	bytesEncoded, err := Encode(expectedValue, actualEncoded)
 	if err != nil {
 		t.Errorf("Value %v: Error encoding: %v", expectedValue, err)
-		return dfloatZero
+		return
 	}
 	if bytesEncoded != len(expectedEncoded) {
 		t.Errorf("Value %v: Expected to encode %v bytes but encoded %v", expectedValue, len(expectedEncoded), bytesEncoded)
-		return dfloatZero
+		return
 	}
 	if !bytes.Equal(expectedEncoded, actualEncoded.Bytes()) {
 		t.Errorf("Value %v: Expected encoded %v but got %v", expectedValue, describe.D(expectedEncoded), describe.D(actualEncoded.Bytes()))
-		return dfloatZero
+		return
 	}
 	actualValue, _, bytesDecoded, err := Decode(bytes.NewBuffer(expectedEncoded))
 	if err != nil {
 		t.Errorf("Value %v: %v", expectedValue, err)
-		return dfloatZero
+		return
 	}
 	if bytesDecoded != len(expectedEncoded) {
 		t.Errorf("Value %v: Expected to decode %v bytes but decoded %v", expectedValue, len(expectedEncoded), bytesDecoded)
-		return dfloatZero
+		return
 	}
 	if actualValue != expectedValue {
 		t.Errorf("Expected %v but got %v", expectedValue, actualValue)
-		return dfloatZero
+		return
 	}
-	testAPD(t, expectedValue.APD(), expectedEncoded)
-	return actualValue
+	assertCodecAPD(t, expectedValue.APD(), expectedEncoded)
 }
 
 func assertAPD(t *testing.T, strValue string, expectedEncoded []byte) {
 	sourceValue, _, err := apd.NewFromString(strValue)
 	if err != nil {
-		t.Error(err)
+		t.Errorf("Unexpected error converting string %v to apd.Decimal: %v", strValue, err)
 		return
 	}
-	testAPD(t, sourceValue, expectedEncoded)
+	assertCodecAPD(t, sourceValue, expectedEncoded)
 }
 
-func assertDecimal(t *testing.T, strValue string, expectedEncoded []byte) {
-	expectedValue, err := DFloatFromString(strValue)
+func assertDecimal(t *testing.T, strValue string, expectedEncoded []byte, expectedErr error) {
+	expectedValue := assertDFloatFromString(t, strValue, expectedErr)
+	assertCodecDecimal(t, expectedValue, expectedEncoded)
+	fromAPD, err := DFloatFromAPD(expectedValue.APD())
 	if err != nil {
-		t.Error(err)
+		t.Errorf("Unexpected error converting from apd.Decimal %v to dfloat: %v", expectedValue.APD(), err)
 		return
 	}
-	testDecimal(t, expectedValue, expectedEncoded)
-	fromAPD := DFloatFromAPD(expectedValue.APD())
 	if fromAPD != expectedValue {
 		t.Errorf("Expected conversion from APD to be %v but got %v", expectedValue, fromAPD)
 	}
 }
 
-func assertFloat64(t *testing.T, sourceValue float64, significantDigits int, expectedValue float64, expectedEncoded []byte) {
-	sourceDecimal := DFloatFromFloat64(sourceValue, significantDigits)
-	actualDecimal := testDecimal(t, sourceDecimal, expectedEncoded)
-	actualValue := actualDecimal.Float()
+func assertFloat64(t *testing.T, sourceValue float64, significantDigits int, expectedValue float64, expectedEncoded []byte, expectedErr error) {
+	sourceDecimal := assertDFloatFromFloat64(t, sourceValue, significantDigits, expectedErr)
+	assertCodecDecimal(t, sourceDecimal, expectedEncoded)
+	actualValue := sourceDecimal.Float()
 
 	if math.IsNaN(expectedValue) {
 		if !math.IsNaN(actualValue) {
@@ -188,24 +191,24 @@ func TestAPD(t *testing.T) {
 }
 
 func TestDecimal(t *testing.T) {
-	assertDecimal(t, "0", []byte{0x02})
-	assertDecimal(t, "-0", []byte{0x03})
-	assertDecimal(t, "inf", []byte{0x82, 0x00})
-	assertDecimal(t, "-inf", []byte{0x83, 0x00})
-	assertDecimal(t, "nan", []byte{0x80, 0x00})
-	assertDecimal(t, "snan", []byte{0x81, 0x00})
+	assertDecimal(t, "0", []byte{0x02}, nil)
+	assertDecimal(t, "-0", []byte{0x03}, nil)
+	assertDecimal(t, "inf", []byte{0x82, 0x00}, nil)
+	assertDecimal(t, "-inf", []byte{0x83, 0x00}, nil)
+	assertDecimal(t, "nan", []byte{0x80, 0x00}, nil)
+	assertDecimal(t, "snan", []byte{0x81, 0x00}, nil)
 
-	assertDecimal(t, "1", []byte{0x00, 0x01})
-	assertDecimal(t, "1.5", []byte{0x06, 0x0f})
-	assertDecimal(t, "-1.2", []byte{0x07, 0x0c})
-	assertDecimal(t, "9.445283e+5000", []byte{0x88, 0x9c, 0x01, 0xa3, 0xbf, 0xc0, 0x04})
+	assertDecimal(t, "1", []byte{0x00, 0x01}, nil)
+	assertDecimal(t, "1.5", []byte{0x06, 0x0f}, nil)
+	assertDecimal(t, "-1.2", []byte{0x07, 0x0c}, nil)
+	assertDecimal(t, "9.445283e+5000", []byte{0x88, 0x9c, 0x01, 0xa3, 0xbf, 0xc0, 0x04}, nil)
 
 	// 0x7fffffffffffffff
-	assertDecimal(t, "9223372036854775807", []byte{0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f})
+	assertDecimal(t, "9223372036854775807", []byte{0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f}, nil)
 	// 0x8000000000000000, rounded
-	assertDecimal(t, "9223372036854775808", []byte{0x04, 0xcd, 0x99, 0xb3, 0xe6, 0xcc, 0x99, 0xb3, 0xe6, 0x0c})
-	assertDecimal(t, "9223372036854775809", []byte{0x04, 0xcd, 0x99, 0xb3, 0xe6, 0xcc, 0x99, 0xb3, 0xe6, 0x0c})
-	assertDecimal(t, "9223372036854775815", []byte{0x04, 0xce, 0x99, 0xb3, 0xe6, 0xcc, 0x99, 0xb3, 0xe6, 0x0c})
+	assertDecimal(t, "9223372036854775808", []byte{0x04, 0xcd, 0x99, 0xb3, 0xe6, 0xcc, 0x99, 0xb3, 0xe6, 0x0c}, RoundingError())
+	assertDecimal(t, "9223372036854775809", []byte{0x04, 0xcd, 0x99, 0xb3, 0xe6, 0xcc, 0x99, 0xb3, 0xe6, 0x0c}, RoundingError())
+	assertDecimal(t, "9223372036854775815", []byte{0x04, 0xce, 0x99, 0xb3, 0xe6, 0xcc, 0x99, 0xb3, 0xe6, 0x0c}, RoundingError())
 }
 
 func TestSpecialF64(t *testing.T) {
@@ -226,54 +229,54 @@ func TestSpecialF64(t *testing.T) {
 	inf := math.Inf(1)
 	ninf := math.Inf(-1)
 
-	assertFloat64(t, 0, 0, 0, []byte{0x02})
-	assertFloat64(t, nzero, 0, nzero, []byte{0x03})
-	assertFloat64(t, qnan, 0, qnan, []byte{0x80, 0x00})
-	assertFloat64(t, snan, 0, snan, []byte{0x81, 0x00})
-	assertFloat64(t, inf, 0, inf, []byte{0x82, 0x00})
-	assertFloat64(t, ninf, 0, ninf, []byte{0x83, 0x00})
+	assertFloat64(t, 0, 0, 0, []byte{0x02}, nil)
+	assertFloat64(t, nzero, 0, nzero, []byte{0x03}, nil)
+	assertFloat64(t, qnan, 0, qnan, []byte{0x80, 0x00}, nil)
+	assertFloat64(t, snan, 0, snan, []byte{0x81, 0x00}, nil)
+	assertFloat64(t, inf, 0, inf, []byte{0x82, 0x00}, nil)
+	assertFloat64(t, ninf, 0, ninf, []byte{0x83, 0x00}, nil)
 }
 
 func Test1_0(t *testing.T) {
-	assertFloat64(t, 1.0, 0, 1.0, []byte{0x00, 0x01})
+	assertFloat64(t, 1.0, 0, 1.0, []byte{0x00, 0x01}, nil)
 }
 
 func Test1_5(t *testing.T) {
-	assertFloat64(t, 1.5, 0, 1.5, []byte{0x06, 0x0f})
+	assertFloat64(t, 1.5, 0, 1.5, []byte{0x06, 0x0f}, nil)
 }
 
 func Test1_2(t *testing.T) {
-	assertFloat64(t, 1.2, 0, 1.2, []byte{0x06, 0x0c})
+	assertFloat64(t, 1.2, 0, 1.2, []byte{0x06, 0x0c}, nil)
 }
 
 func Test1_25(t *testing.T) {
-	assertFloat64(t, 1.25, 0, 1.25, []byte{0x0a, 0x7d})
+	assertFloat64(t, 1.25, 0, 1.25, []byte{0x0a, 0x7d}, nil)
 }
 
 func Test8_8419305(t *testing.T) {
-	assertFloat64(t, 8.8419305, 0, 8.8419305, []byte{0x1e, 0xe9, 0xd7, 0x94, 0x2a})
+	assertFloat64(t, 8.8419305, 0, 8.8419305, []byte{0x1e, 0xe9, 0xd7, 0x94, 0x2a}, nil)
 }
 
 func Test1999999999999999(t *testing.T) {
-	assertFloat64(t, 1999999999999999.0, 0, 1999999999999999.0, []byte{0x00, 0xff, 0xff, 0xb3, 0xcc, 0xd4, 0xdf, 0xc6, 0x03})
+	assertFloat64(t, 1999999999999999.0, 0, 1999999999999999.0, []byte{0x00, 0xff, 0xff, 0xb3, 0xcc, 0xd4, 0xdf, 0xc6, 0x03}, nil)
 }
 
 func Test9_3942e100(t *testing.T) {
-	assertFloat64(t, 9.3942e100, 0, 9.3942e100, []byte{0x80, 0x03, 0xf6, 0xdd, 0x05})
+	assertFloat64(t, 9.3942e100, 0, 9.3942e100, []byte{0x80, 0x03, 0xf6, 0xdd, 0x05}, nil)
 }
 
 func Test4_192745343en122(t *testing.T) {
-	assertFloat64(t, 4.192745343e-122, 0, 4.192745343e-122, []byte{0x8e, 0x04, 0xff, 0xee, 0xa0, 0xcf, 0x0f})
+	assertFloat64(t, 4.192745343e-122, 0, 4.192745343e-122, []byte{0x8e, 0x04, 0xff, 0xee, 0xa0, 0xcf, 0x0f}, nil)
 }
 
 func Test0_2Round4(t *testing.T) {
-	assertFloat64(t, 0.2, 4, 0.2, []byte{0x06, 0x02})
+	assertFloat64(t, 0.2, 4, 0.2, []byte{0x06, 0x02}, nil)
 }
 
 func Test0_5935555Round4(t *testing.T) {
-	assertFloat64(t, 0.5935555, 4, 0.5936, []byte{0x12, 0xb0, 0x2e})
+	assertFloat64(t, 0.5935555, 4, 0.5936, []byte{0x12, 0xb0, 0x2e}, RoundingError())
 }
 
 func Test0_1473445219134543Round6(t *testing.T) {
-	assertFloat64(t, 14.73445219134543, 6, 14.7345, []byte{0x12, 0x91, 0xff, 0x08})
+	assertFloat64(t, 14.73445219134543, 6, 14.7345, []byte{0x12, 0x91, 0xff, 0x08}, RoundingError())
 }

@@ -71,7 +71,11 @@ func demonstrateEncodeDecodeFloat64() {
 	originalValue := 0.1473445219134543
 	significantDigits := 6
 	buffer := &bytes.Buffer{}
-	_, err := Encode(DFloatFromFloat64(originalValue, significantDigits), buffer)
+	value, err := DFloatFromFloat64(originalValue, significantDigits)
+	if err != nil {
+		// TODO: Handle error (which might be RoundingError, in which case value is the rounded result)
+	}
+	_, err = Encode(value, buffer)
 	if err != nil {
 		// TODO: Handle error
 	}
