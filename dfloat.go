@@ -262,6 +262,9 @@ func (this DFloat) String() string {
 //
 // This method call is forwarded to *apd.Decimal.Text()
 func (this DFloat) Text(format byte) string {
+	if this == NegativeZero() {
+		return "-0"
+	}
 	return this.APD().Text(format)
 }
 

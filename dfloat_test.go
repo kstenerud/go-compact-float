@@ -316,6 +316,18 @@ func TestText(t *testing.T) {
 	assertTextFormat(t, "1.0", 'g', "1")
 	assertTextFormat(t, "1.0", 'G', "1")
 
+	assertTextFormat(t, "-0", 'e', "-0")
+	assertTextFormat(t, "-0", 'E', "-0")
+	assertTextFormat(t, "-0", 'f', "-0")
+	assertTextFormat(t, "-0", 'g', "-0")
+	assertTextFormat(t, "-0", 'G', "-0")
+
+	assertTextFormat(t, "-0.0", 'e', "-0")
+	assertTextFormat(t, "-0.0", 'E', "-0")
+	assertTextFormat(t, "-0.0", 'f', "-0")
+	assertTextFormat(t, "-0.0", 'g', "-0")
+	assertTextFormat(t, "-0.0", 'G', "-0")
+
 	assertTextFormat(t, "1.2345678901234", 'e', "1.2345678901234e+0")
 	assertTextFormat(t, "1.2345678901234", 'E', "1.2345678901234E+0")
 	assertTextFormat(t, "1.2345678901234", 'f', "1.2345678901234")
