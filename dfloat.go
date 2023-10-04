@@ -335,10 +335,11 @@ func (this DFloat) Float() float64 {
 		return math.Float64frombits(math.Float64bits(math.NaN()) & ^uint64(quietBit))
 	}
 
-	result, err := strconv.ParseFloat(this.String(), 64)
+	bf, _, err := big.ParseFloat(this.String(), 0, 0, big.ToNearestEven)
 	if err != nil {
 		panic(fmt.Errorf("BUG: error decoding stringified DFloat %v: %v", this, err))
 	}
+	result, _ := bf.Float64()
 	return result
 }
 

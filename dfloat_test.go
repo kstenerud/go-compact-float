@@ -405,6 +405,13 @@ func TestConvertToInt(t *testing.T) {
 func TestConvertToFloat(t *testing.T) {
 	assertConvertToFloat(t, DFloatValue(1, 1), 10.0)
 	assertConvertToFloat(t, DFloatValue(97, 5053), 5.053e+100)
+
+	// Too big for float64, should not panic
+	v, err := DFloatFromString("3.593951285388854883e1000")
+	if err != nil {
+		t.Error(err)
+	}
+	v.Float()
 }
 
 func TestConvertToBigFloat(t *testing.T) {
